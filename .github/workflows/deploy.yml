@@ -1,0 +1,74 @@
+name: deploy
+
+# main 에 푸시될 때만 배포한다. IAM 신뢰 정책도 main 브랜치로 좁혀 두므로
+# 다른 브랜치에서 실행되면 역할을 못 빌리고 인증 단계에서 멈춘다 — 의도한 동작이다.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  AWS_REGION: ap-northeast-2
+  ECR_REPO: nexpert-tech
+  ECS_CLUSTER: nexpert-tech
+  ECS_SERVICE: nexpert-tech
+
+permissions:
+  # ⚠ id-token: write 가 OIDC 의 전부다. 이게 없으면 GitHub 이 토큰을 발급하지 않아
+  #   "Credentials could not be loaded" 로 실패한다. 원인 찾기 어려운 실패라 적어 둔다.
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # 장기 액세스 키를 쓰지 않는다. GitHub 이 발급한 단기 OIDC 토큰으로
+      # IAM 역할을 빌린다 — 저장소에 남는 비밀이 없다.
+      - name: AWS 인증 (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::774118824757:role/nexpert-tech-deploy-role
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: ECR 로그인
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: 빌드 · 푸시
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          # 태그 두 개를 단다.
+          #  · latest → 태스크 정의가 이걸 가리키므로 배포에 쓰인다
+          #  · SHA    → 어느 커밋이 올라간 건지 ECR 에서 되짚을 수 있다
+          docker build -t "$REGISTRY/$ECR_REPO:latest" -t "$REGISTRY/$ECR_REPO:$SHA" .
+          docker push "$REGISTRY/$ECR_REPO:latest"
+          docker push "$REGISTRY/$ECR_REPO:$SHA"
+
+      # 최초 실행 시점에는 ECS 서비스가 아직 없다(이미지가 있어야 태스크 정의를 만들 수 있으므로).
+      # 서비스가 없으면 이미지 푸시까지만 하고 정상 종료한다 — 실패로 취급하지 않는다.
+      - name: ECS 서비스 갱신
+        run: |
+          set -euo pipefail
+          active=$(aws ecs describe-services \
+            --cluster "$ECS_CLUSTER" --services "$ECS_SERVICE" \
+            --query 'services[?status==`ACTIVE`].serviceName' --output text 2>/dev/null || true)
+
+          if [ -z "$active" ]; then
+            echo "::notice::ECS 서비스가 아직 없습니다. 이미지 푸시까지 완료했습니다."
+            exit 0
+          fi
+
+          # 태스크 정의가 :latest 를 가리키므로 강제 재배포하면 새 이미지를 다시 받는다.
+          aws ecs update-service \
+            --cluster "$ECS_CLUSTER" --service "$ECS_SERVICE" \
+            --force-new-deployment >/dev/null
+
+          echo "새 배포를 기다립니다..."
+          aws ecs wait services-stable --cluster "$ECS_CLUSTER" --services "$ECS_SERVICE"
+          echo "::notice::배포 완료"
