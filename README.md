@@ -362,8 +362,27 @@ aws bedrock create-foundation-model-agreement --model-id anthropic.claude-opus-5
 ⚠ **`get-foundation-model-availability` 가 전부 AVAILABLE 이어도 호출은 실패할 수 있다.**
 이 명령은 계약·권한을 볼 뿐 런타임 반영을 보증하지 않는다. **판정은 실제 호출로 한다.**
 
+### 이미 확인해서 아닌 것 (다시 돌지 마라)
+
+| 확인한 것 | 결과 |
+|---|---|
+| 모델 ID / 프로젝트 ID / IAM / 우리 코드 | 전부 정상 — 콘솔 Workbench 도 똑같이 거절당한다 |
+| Marketplace 계약 | 생성됨. 오퍼는 하나뿐이라 더 맺을 것도 없다 |
+| `get-foundation-model-availability` | 네 항목 모두 `AVAILABLE`/`AUTHORIZED` |
+| 고객 확인(Customer Verification) | **"완료할 필요가 없습니다"** — 요구 사항 없음 |
+| 결제 수단 | 카드 등록됨 · 세금 설정에 사업자등록번호 입력됨 |
+| 구세대 Claude (Opus 4.7 / Sonnet 5) | 같은 403 — 세대 문제가 아니다 |
+| Claude Enterprise 상품 | 구독 버튼 정상 활성 — **Marketplace 전체가 막힌 것은 아니다** |
+
+⚠ **타사 모델(Grok)이 되는 것을 "Marketplace 정상"의 근거로 삼지 마라.** Amazon·Meta·Qwen·
+DeepSeek·Mistral·OpenAI 등은 **Marketplace 를 거치지 않고 팔린다**(product ID 가 없다).
+Marketplace 를 거치는 것은 Anthropic 쪽이고, 정확히 그것만 막혀 있다.
+
+남은 단서는 Marketplace 의 `AWS account registration is incomplete or revoked` 배너
+하나뿐인데, **계정 화면 어디에도 우리가 채울 항목이 없다.** 여기서부터는 AWS 만 볼 수 있다.
+
 오류 문구가 안내하는 곳은 Support 가 아니라 **AWS Sales**(`aws.amazon.com/contact-us/sales-support/`)다.
-열어 둔 Support 케이스는 '계정 및 결제'라 창구가 다르다 — 기술 지원(Amazon Bedrock)으로 올려야 한다.
+베이직 플랜은 **기술 케이스를 못 연다** — '계정 및 결제'로 열어야 하고 그건 무료다.
 
 이 사이트는 그것 하나 때문에 답변을 못 한다. 인프라는 전부 서 있다.
 **모델 ID를 더 바꿔 보는 것은 시간 낭비다.**
