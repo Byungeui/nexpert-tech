@@ -374,12 +374,34 @@ aws bedrock create-foundation-model-agreement --model-id anthropic.claude-opus-5
 | 구세대 Claude (Opus 4.7 / Sonnet 5) | 같은 403 — 세대 문제가 아니다 |
 | Claude Enterprise 상품 | 구독 버튼 정상 활성 — **Marketplace 전체가 막힌 것은 아니다** |
 
-⚠ **타사 모델(Grok)이 되는 것을 "Marketplace 정상"의 근거로 삼지 마라.** Amazon·Meta·Qwen·
-DeepSeek·Mistral·OpenAI 등은 **Marketplace 를 거치지 않고 팔린다**(product ID 가 없다).
-Marketplace 를 거치는 것은 Anthropic 쪽이고, 정확히 그것만 막혀 있다.
+### 경계는 '공급자'다 — 모델을 여섯 개 찔러 보고 알아냈다
 
-남은 단서는 Marketplace 의 `AWS account registration is incomplete or revoked` 배너
-하나뿐인데, **계정 화면 어디에도 우리가 채울 항목이 없다.** 여기서부터는 AWS 만 볼 수 있다.
+| 공급자 | 결과 |
+|---|---|
+| xAI (Grok 4.3) · Google (Gemma 4) · Alibaba (Qwen3) · DeepSeek (V3.2) | **정상** |
+| **OpenAI** (GPT-5.6 Sol) | 401 |
+| **Anthropic** (Claude 전 세대) | 403 |
+
+되는 넷은 전부 오픈웨이트 모델이고, 막힌 둘은 **AWS Marketplace 를 통해 팔리는 상업
+공급자**다. 계약 메일이 그 증거다 — 판매자 `Anthropic, PBC`, 상품 `prod-if5d653ow7ehg`
+(Claude Opus 5, **Amazon Bedrock Edition**).
+
+⚠ **모델 하나가 되는 것을 "계정 정상"의 근거로 삼지 마라.** 이 세션에서 Grok 하나가
+답하는 것을 보고 "계정은 정상"이라고 두 번 결론 냈다가 두 번 틀렸다. **공급자를 흩어서
+서너 개를 찔러 봐야 경계가 보인다** — Workbench 의 `Select up to 3 models` 로 30초면 된다.
+
+⚠ AWS 문서(`model-access.html`)의 "Marketplace 를 거치지 않는 공급자" 목록에 OpenAI 가
+들어 있지만 **그 목록은 최신 상품에 대해 낡았다.** 계약 메일에 찍힌 판매자·상품 ID 가 우선이다.
+
+### 결론 — 계정이 Marketplace 거래를 못 하는 상태다
+
+계약을 API 로 만든 것은 **UI 버튼을 우회한 것뿐**이다. 계약 레코드는 생겼지만 런타임이
+사용권을 인정하려면 계정이 Marketplace 거래 가능 상태여야 한다. 그래서
+`agreementAvailability: AVAILABLE` 인데 호출은 403 인 모순이 생긴다.
+
+남은 단서는 `AWS account registration is incomplete or revoked` 배너 하나뿐이고,
+**계정 화면 어디에도 우리가 채울 항목이 없다.** 콘솔에 노출되지 않는 내부 상태다 —
+여기서부터는 AWS 만 풀 수 있다.
 
 오류 문구가 안내하는 곳은 Support 가 아니라 **AWS Sales**(`aws.amazon.com/contact-us/sales-support/`)다.
 베이직 플랜은 **기술 케이스를 못 연다** — '계정 및 결제'로 열어야 하고 그건 무료다.
