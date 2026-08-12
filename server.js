@@ -49,7 +49,16 @@ const app = express();
 // 레이트리밋이 전체 사용자에게 하나로 걸린다.
 app.set("trust proxy", true);
 app.use(express.json({ limit: "64kb" }));
-app.use(express.static(path.join(__dirname, "public")));
+// ⚠ 정적 파일에 no-cache 를 붙인다. '캐시 금지'가 아니라 **매번 재검증**이라,
+// 안 바뀌었으면 304 로 끝나 비용은 거의 없다.
+//
+// 안 붙이면 브라우저가 index.html 은 새로 받고 app.js 는 캐시에서 꺼내 쓰는 조합이
+// 생긴다. 실제로 배포 직후 옛 app.js 가 새 index.html 에 없는 요소를 찾다가
+// "Cannot set properties of null" 로 화면 전체가 죽었다.
+// **배포할 때마다 사용자에게 강력 새로고침을 요구할 수는 없다.**
+app.use(express.static(path.join(__dirname, "public"), {
+  setHeaders: (res) => res.setHeader("Cache-Control", "no-cache"),
+}));
 
 // ── 헬스체크 ────────────────────────────────────────────────────────
 // ALB 가 이 경로를 주기적으로 때린다. 실패하면 태스크를 죽이고 재시작하므로

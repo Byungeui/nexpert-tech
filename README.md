@@ -98,6 +98,12 @@ Learn 쪽 URL에 `maxTokenBudget`을 걸어 둔 이유는 비용이다. 조회 �
 어긋나면 다른 회사의 도구처럼 보인다. 더 넓히기 전에 한 줄이 길어질수록 읽기
 나빠진다는 것을 감안할 것 — 1140px 에서 답변 한 줄이 이미 한글 70자 안팎이다.
 
+**⚠ 정적 파일에 `Cache-Control: no-cache` 를 반드시 붙여 둔다** (`server.js` 의
+`express.static`). 없으면 브라우저가 `index.html` 은 새로 받고 `app.js` 는 캐시에서
+꺼내 쓰는 조합이 생긴다. 실제로 배포 직후 옛 `app.js` 가 새 `index.html` 에 없는
+요소를 찾다가 `Cannot set properties of null` 로 **화면 전체가 죽었다.**
+`no-cache` 는 캐시 금지가 아니라 매번 재검증이라, 안 바뀌었으면 304 로 끝난다.
+
 **⚠ 입력창 placeholder 에 조작법을 넣지 마라.** `질문을 입력하세요 (Enter 전송 ·
 Shift+Enter 줄바꿈)` 은 휴대폰에서 한 줄짜리 입력창 안에 두 줄로 접혀 아래가 잘렸다.
 조작법은 하단 안내문의 `.keyhint` 로 옮기고 좁은 화면에서는 CSS 로 감춘다 —
