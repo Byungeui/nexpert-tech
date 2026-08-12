@@ -298,16 +298,42 @@ git push → GitHub Actions → Docker 빌드 → ECR 푸시 → ECS 서비스 �
 리소스는 프로젝트 ARN(`arn:aws:bedrock-mantle:us-east-1:…:project/proj_…`)으로 좁혀 둔다.
 `"Resource": "*"`로 열지 않는다.
 
-### 2026-08 현재 — 계정 자체가 막혀 있다
+### 2026-08 현재 — Anthropic 모델에만 사용권이 없다
 
-Anthropic 모델 호출이 전부 403이다. **모델이나 IAM 문제가 아니다.** AWS Marketplace가
-`AWS account registration is incomplete or revoked`를 표시하고, **루트 계정으로 연
-Bedrock Playground에서도 같은 에러**가 난다. 결제 수단·연락처·세금 등록을 채워도 남아
-있어서 AWS Support 케이스(계정 및 결제)를 열어 둔 상태다.
+**계정은 정상이다. 잠긴 것은 Anthropic 모델 한 벌뿐이다.**
+
+`bedrock-mantle` 콘솔(`Projects → claude-project-chatbot → Workbench`)에서 직접 확인했다.
+
+| 보낸 것 | 결과 |
+|---|---|
+| Claude Opus 5 | `403 permission_error` — *anthropic.claude-opus-5 is not available for this account* |
+| Grok 4.3 | **정상 답변** |
+
+같은 계정·같은 프로젝트·같은 엔드포인트에서 한쪽만 거절된다. 그러므로 우리 코드도,
+IAM 도, 모델 ID 도, 프로젝트 ID 도 원인이 아니다. **앱을 빼고 AWS 자기 콘솔로 쏴도
+똑같이 거절당한다** — 이 사실이 나머지 가설을 전부 지운다.
+
+같은 화면에서 확인된 것:
+
+- 모델 ID 는 **`anthropic.claude-opus-5`** 가 맞다 (모델 상세 패널에 그대로 적혀 있다).
+- 프로젝트 ID `proj_u2jip7h633rhkaumuwwl` = `claude-project-chatbot`. 앱이 보내는
+  `anthropic-workspace-id` 헤더가 맞다.
+- 모델 상세의 **`입력 TPM 0 (기본값: 20M)`** 은 계정 한도가 아니라 **그 모델에 사용권이
+  없어서 0**이다. 프로젝트 편집 화면에는 한도를 올리는 항목 자체가 없다.
+- 카탈로그에서 `제한됨` 배지는 Claude Fable 5 에만 붙는다. Opus 5 는 목록에 정상으로
+  보인다 — **목록에 보인다고 쓸 수 있는 것이 아니다.**
+
+⚠ **한때 "계정 자체가 막혀 있다"고 적어 두었는데 틀린 진단이었다.** Marketplace 의
+`AWS account registration is incomplete or revoked` 배너와 Playground 실패를 보고
+계정 전체로 넘겨짚었다. Grok 이 답하는 것으로 뒤집혔다. **한 모델의 실패를 계정 전체의
+실패로 일반화하지 마라 — 다른 회사 모델 하나를 쏴 보면 30초에 갈린다.**
+
+오류 문구가 안내하는 곳은 Support 가 아니라 **AWS Sales**(`aws.amazon.com/contact-us/sales-support/`)다.
+기술 장애가 아니라 **모델 사용권 계약** 문제라는 뜻이다. 열어 둔 Support 케이스는
+'계정 및 결제'라 창구가 다를 수 있다.
 
 이 사이트는 그것 하나 때문에 답변을 못 한다. 인프라는 전부 서 있다.
-**모델 ID를 더 바꿔 보는 것은 시간 낭비다** — 계정이 열리면 `anthropic.claude-opus-5`로
-그냥 될 가능성이 높다.
+**모델 ID를 더 바꿔 보는 것은 시간 낭비다.**
 
 ---
 
