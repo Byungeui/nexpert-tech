@@ -39,10 +39,13 @@
   <div class="examples" id="examples"></div>
 
   <form id="form" class="composer">
-    <textarea id="q" rows="1" placeholder="질문을 입력하세요  (Enter 전송 · Shift+Enter 줄바꿈)" maxlength="2000"></textarea>
+    <!-- ⚠ 조작법(Enter 전송 …)을 이 placeholder 에 넣지 마라. 한 줄짜리 입력창
+         안에서 두 줄로 접혀 아래가 잘린다 — 휴대폰에서 실제로 그랬다.
+         조작법은 아래 .keyhint 로 옮겼고, 좁은 화면에서는 CSS 가 감춘다. -->
+    <textarea id="q" rows="1" placeholder="질문을 입력하세요" maxlength="2000"></textarea>
     <button id="send" type="submit">전송</button>
   </form>
-  <p class="disclaimer">답변은 참고용입니다. 고객에게 전달하기 전에 벤더 공식 자료로 확인하세요.</p>
+  <p class="disclaimer">답변은 참고용입니다. 고객에게 전달하기 전에 벤더 공식 자료로 확인하세요.<span class="keyhint"> · Enter 전송, Shift+Enter 줄바꿈</span></p>
 </main>
 
 <script src="/app.js"></script>

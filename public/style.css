@@ -220,6 +220,12 @@ body:not(.started) .log { justify-content: flex-end; }
 .composer button:disabled { opacity: .5; cursor: default; }
 
 .disclaimer { margin: 0; color: var(--dim); font-size: 12px; text-align: center; }
+
+/* 키보드 조작법. **휴대폰 키보드에는 Shift+Enter 가 없으므로** 좁은 화면에서는
+   감춘다. 이 안내는 입력창 placeholder 에 두지 않는다 — 거기 두면 한 줄짜리
+   입력창에서 접혀 잘린다. 여기서 CSS 로만 켜고 끄면 어느 폭에서도 틀리지 않는다. */
+.keyhint { display: none; }
+@media (min-width: 601px) { .keyhint { display: inline; } }
 .err { color: var(--danger); }
 
 /* 답변을 기다리는 동안의 커서. 조회(MCP)가 돌면 무엇을 하는 중인지 함께 보여준다. */
