@@ -10,7 +10,6 @@ const q = document.getElementById("q");
 const sendBtn = document.getElementById("send");
 const tabs = document.getElementById("tabs");
 const examples = document.getElementById("examples");
-const intro = document.getElementById("intro");
 
 // 대화 이력은 카테고리마다 따로 둔다. 보안장비 이야기를 하다 Azure 탭으로 옮겼는데
 // 앞의 대화가 그대로 따라가면, 서버가 갈아 끼운 규칙과 이력이 어긋나 답이 흐려진다.
@@ -109,6 +108,8 @@ async function ask(question) {
   if (busy || !question.trim()) return;
   busy = true;
   sendBtn.disabled = true;
+  // 대화가 시작되면 목록을 위에서부터 채운다 (style.css 의 .started 참고)
+  document.body.classList.add("started");
 
   bubble("user").textContent = question;
   const body = bubble("bot");
@@ -212,16 +213,20 @@ function select(key) {
   current = cat;
   history = [];               // 카테고리가 바뀌면 이력도 버린다
   log.replaceChildren();
+  document.body.classList.remove("started");   // 다시 '시작 전' 배치로
 
   for (const b of tabs.children) b.setAttribute("aria-selected", String(b.dataset.key === key));
 
-  // 안내 카드 — 대화 목록 밖에 둔다. 넓은 화면에서는 왼쪽 열에 그대로 남고,
-  // 좁은 화면에서는 맨 위에 놓인다.
+  // 안내 카드는 대화 목록의 첫 항목이다. 말풍선이 아니라 카드로 그린다 —
+  // 답변이 아니라 "이 탭이 무엇을 근거로 답하는가"를 알리는 안내이기 때문이다.
   const badge = cat.key !== "secui" && mcpOn ? '<span class="badge">문서 조회</span>' : "";
-  intro.innerHTML =
+  const card = document.createElement("div");
+  card.className = "card intro";
+  card.innerHTML =
     `<h2>${esc(cat.label)}<span style="color:var(--dim);font-weight:400"> · ${esc(cat.tagline)}</span>${badge}</h2>` +
     `<ul class="scope">${cat.intro.map(([t, d]) => `<li><b>${esc(t)}</b> — ${esc(d)}</li>`).join("")}</ul>` +
     `<p class="note">${esc(cat.note)}</p>`;
+  log.appendChild(card);
 
   // 예시 질문
   examples.replaceChildren(...cat.examples.map((t) => {
