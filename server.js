@@ -11,6 +11,7 @@ const express = require("express");
 const path = require("path");
 const { AnthropicBedrockMantle } = require("@anthropic-ai/bedrock-sdk");
 const { systemBlocks } = require("./src/grounding");
+const categories = require("./src/categories");
 const limits = require("./src/limits");
 
 const PORT = Number(process.env.PORT || 8080);
@@ -21,6 +22,17 @@ const PROJECT_ID = process.env.BEDROCK_PROJECT_ID;
 const MODEL = process.env.BEDROCK_MODEL || "anthropic.claude-opus-5";
 const MAX_TOKENS = Number(process.env.MAX_TOKENS || 4096);
 const MAX_HISTORY = 10;
+
+// ── MCP 문서 조회 ───────────────────────────────────────────────────
+// Azure·AWS 카테고리는 벤더가 운영하는 원격 MCP 서버로 공식 문서를 조회한다
+// (src/categories.js 의 MCP 참조). **기본값은 꺼짐**이다.
+//
+// 왜 꺼두는가: 이 접점(bedrock-mantle)에서 MCP 커넥터가 동작하는지 아직 확인하지
+// 못했다. 모델 호출 자체가 계정 문제로 막혀 있어 검증할 수가 없었다. 켜둔 채로
+// 두면 나중에 실패했을 때 **"MCP가 안 되는 건지 계정이 안 열린 건지" 구분이 안 된다.**
+// 계정이 열려 일반 답변이 되는 것을 먼저 확인하고, 그다음 이 값을 켠다.
+const MCP_ENABLED = process.env.MCP_ENABLED === "1";
+const MCP_BETA = "mcp-client-2025-04-04";
 
 if (!PROJECT_ID) {
   console.error("[fatal] BEDROCK_PROJECT_ID 가 없습니다 (콘솔의 anthropic-workspace-id).");
@@ -46,12 +58,23 @@ app.use(express.static(path.join(__dirname, "public")));
 app.get("/health", (_req, res) => res.status(200).send("ok"));
 
 // 운영 확인용. 사용량이 얼마나 찼는지 본다.
-app.get("/api/status", (_req, res) => res.json(limits.status()));
+app.get("/api/status", (_req, res) => res.json({ ...limits.status(), mcp: MCP_ENABLED }));
+
+// 화면이 카테고리 목록을 여기서 받아 간다. **목록의 정본은 서버**다 —
+// 화면에 하드코딩하면 규칙과 예시 질문이 따로 놀기 시작한다.
+app.get("/api/categories", (_req, res) => res.json({
+  categories: categories.forClient(),
+  default: categories.DEFAULT_CATEGORY,
+  mcp: MCP_ENABLED,
+}));
 
 app.post("/api/chat", async (req, res) => {
   const question = req.body?.question;
   const reason = limits.check(req, question);
   if (reason) return res.status(429).json({ error: reason });
+
+  // 클라이언트가 보낸 카테고리를 그대로 믿지 않는다. 목록에 없으면 기본값이 된다.
+  const category = categories.resolve(req.body?.category);
 
   // 대화 이력은 클라이언트가 보낸다. 그대로 믿으면 토큰 폭탄이 되므로
   // 길이와 개수를 서버에서 자른다.
@@ -72,19 +95,30 @@ app.post("/api/chat", async (req, res) => {
   const send = (event, data) => res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
 
   try {
-    const stream = client.messages.stream({
+    const params = {
       model: MODEL,
       max_tokens: MAX_TOKENS,
       thinking: { type: "adaptive" },
-      system: systemBlocks(),
+      system: systemBlocks(category.key),
       messages,
-    });
+    };
+
+    // MCP 를 쓰는 카테고리만 beta 경로로 보낸다. 안 쓰는 카테고리(SECUI)까지
+    // beta 로 보내면, 문제가 생겼을 때 원인이 MCP 인지 beta 경로인지 갈린다.
+    const useMcp = MCP_ENABLED && category.mcp;
+    const stream = useMcp
+      ? client.beta.messages.stream({ ...params, betas: [MCP_BETA], mcp_servers: category.mcp })
+      : client.messages.stream(params);
 
     // 원시 이벤트를 직접 훑는다. text_delta 만 화면으로 보내면
     // 사고 과정(thinking_delta)은 자연히 걸러진다.
     for await (const event of stream) {
       if (event.type === "content_block_delta" && event.delta?.type === "text_delta") {
         send("delta", event.delta.text);
+      } else if (event.type === "content_block_start" && event.content_block?.type === "mcp_tool_use") {
+        // 문서를 조회하는 동안 화면이 멎어 보인다. 몇 초씩 걸리므로 무엇을 하는
+        // 중인지 알려준다 — 안 그러면 사용자가 고장으로 여기고 새로고침한다.
+        send("tool", event.content_block.server_name || "문서");
       }
     }
 

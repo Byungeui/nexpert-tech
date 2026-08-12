@@ -8,8 +8,15 @@ const log = document.getElementById("log");
 const form = document.getElementById("form");
 const q = document.getElementById("q");
 const sendBtn = document.getElementById("send");
+const tabs = document.getElementById("tabs");
+const examples = document.getElementById("examples");
 
-const history = [];
+// 대화 이력은 카테고리마다 따로 둔다. 보안장비 이야기를 하다 Azure 탭으로 옮겼는데
+// 앞의 대화가 그대로 따라가면, 서버가 갈아 끼운 규칙과 이력이 어긋나 답이 흐려진다.
+let history = [];
+let current = null;      // 지금 선택된 카테고리 객체
+let catalog = [];        // 서버가 준 카테고리 목록
+let mcpOn = false;
 let busy = false;
 
 const esc = (s) => s.replace(/[&<>"']/g, (c) =>
@@ -111,7 +118,7 @@ async function ask(question) {
     const res = await fetch("/api/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ question, history }),
+      body: JSON.stringify({ question, history, category: current?.key }),
     });
 
     if (!res.ok) {
@@ -141,8 +148,13 @@ async function ask(question) {
 
         if (ev === "delta") {
           answer += data;
+          body.className = "body typing";
           body.innerHTML = render(answer);
           log.lastElementChild.scrollIntoView({ block: "end" });
+        } else if (ev === "tool") {
+          // 문서 조회는 몇 초씩 걸린다. 그동안 화면이 멎어 보이지 않게 표시한다.
+          body.className = "body";
+          body.innerHTML = `<div class="tool">${esc(data)} 공식 문서를 찾는 중…</div>`;
         } else if (ev === "error") {
           throw new Error(data);
         }
@@ -152,7 +164,7 @@ async function ask(question) {
     if (!answer) throw new Error("빈 응답을 받았습니다.");
     history.push({ role: "user", content: question }, { role: "assistant", content: answer });
   } catch (e) {
-    body.innerHTML = `<p style="color:#f85149">${esc(e.message)}</p>`;
+    body.innerHTML = `<p class="err">${esc(e.message)}</p>`;
   } finally {
     body.className = "body";
     busy = false;
@@ -183,6 +195,66 @@ q.addEventListener("input", () => {
   q.style.height = Math.min(q.scrollHeight, 180) + "px";
 });
 
-document.getElementById("examples").addEventListener("click", (e) => {
+examples.addEventListener("click", (e) => {
   if (e.target.tagName === "BUTTON") ask(e.target.textContent);
 });
+
+// ── 카테고리 ──────────────────────────────────────────────────────
+//
+// 목록의 정본은 서버(src/categories.js)다. 여기에 옮겨 적지 않는다 —
+// 화면의 예시 질문과 서버의 답변 규칙이 따로 놀기 시작하는 순간 이 사이트는
+// "무엇을 물어야 하는지"를 잘못 안내하게 된다.
+
+function select(key) {
+  const cat = catalog.find((c) => c.key === key);
+  if (!cat || cat === current) return;
+  current = cat;
+  history = [];               // 카테고리가 바뀌면 이력도 버린다
+  log.replaceChildren();
+
+  for (const b of tabs.children) b.setAttribute("aria-selected", String(b.dataset.key === key));
+
+  // 안내 카드
+  const body = bubble("bot");
+  body.classList.add("intro");
+  const badge = cat.key !== "secui" && mcpOn ? '<span class="badge">문서 조회</span>' : "";
+  body.innerHTML =
+    `<h2>${esc(cat.label)}<span style="color:var(--dim);font-weight:400"> · ${esc(cat.tagline)}</span>${badge}</h2>` +
+    `<ul class="scope">${cat.intro.map(([t, d]) => `<li><b>${esc(t)}</b> — ${esc(d)}</li>`).join("")}</ul>` +
+    `<p class="note">${esc(cat.note)}</p>`;
+
+  // 예시 질문
+  examples.replaceChildren(...cat.examples.map((t) => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.textContent = t;
+    return b;
+  }));
+
+  q.focus();
+}
+
+(async function init() {
+  try {
+    const r = await fetch("/api/categories");
+    if (!r.ok) throw new Error(`카테고리를 불러오지 못했습니다 (${r.status})`);
+    const d = await r.json();
+    catalog = d.categories;
+    mcpOn = !!d.mcp;
+
+    tabs.replaceChildren(...catalog.map((c) => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.dataset.key = c.key;
+      b.setAttribute("role", "tab");
+      b.setAttribute("aria-selected", "false");
+      b.innerHTML = `${esc(c.label)}<small>${esc(c.tagline)}</small>`;
+      b.addEventListener("click", () => select(c.key));
+      return b;
+    }));
+
+    select(d.default);
+  } catch (e) {
+    bubble("bot").innerHTML = `<p class="err">${esc(e.message)}</p>`;
+  }
+})();

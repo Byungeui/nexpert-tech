@@ -4,39 +4,37 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
-<title>NEXPERT Tech — 보안장비 기술 Q&A</title>
+<title>NEXPERT Tech — 기술 지원 Q&A</title>
+
+<!-- 파비콘·로고는 홈페이지(04_홈페이지/site)와 같은 마크를 인라인 SVG 로 쓴다.
+     PNG 를 복사해 오면 CI 가 바뀔 때 두 곳을 고쳐야 하고, 한쪽을 빼먹는다.
+     원본은 CI/build_ci.js 안의 SVG 다. -->
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48'%3E%3Cpath d='M24 3 42.2 13.5v21L24 45 5.8 34.5v-21L24 3z' fill='%230a1424' stroke='%233b8cff' stroke-width='3'/%3E%3Cpath d='M17 31.5v-15M17 16.5l14 15M31 31.5v-15' stroke='%2338d9f0' stroke-width='3.6' stroke-linecap='round' fill='none'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
 <link rel="stylesheet" href="/style.css">
 </head>
 <body>
 
-<header>
-  <div class="brand">
-    <strong>NEXPERT</strong> <span>Tech</span>
+<header class="top">
+  <div class="wrap">
+    <div class="brand">
+      <svg class="mark" width="34" height="34" viewBox="0 0 48 48" fill="none" aria-hidden="true">
+        <path d="M24 3 42.2 13.5v21L24 45 5.8 34.5v-21L24 3z" fill="rgba(59,140,255,0.1)" stroke="#3b8cff" stroke-width="2.4" stroke-linejoin="round"/>
+        <path d="M17 31.5v-15M17 16.5l14 15M31 31.5v-15" stroke="#38d9f0" stroke-width="3.1" stroke-linecap="round" stroke-linejoin="round"/>
+        <circle cx="17" cy="16.5" r="2.5" fill="#3b8cff"/>
+        <circle cx="31" cy="31.5" r="2.5" fill="#3b8cff"/>
+      </svg>
+      <span class="word"><b>NEXPERT</b> Tech</span>
+    </div>
+
+    <!-- 카테고리는 서버(/api/categories)가 주는 목록으로 그린다 -->
+    <nav class="tabs" id="tabs" aria-label="카테고리"></nav>
   </div>
-  <p class="sub">방화벽 · IPS · 네트워크 보안 기술 Q&amp;A</p>
 </header>
 
 <main>
-  <div id="log" class="log">
-    <div class="msg bot">
-      <div class="body">
-        <p>보안장비와 네트워크 기술에 대해 물어보세요.</p>
-        <ul class="scope">
-          <li><b>SECUI BLUEMAX NGF</b> — 검증된 제품 자료로 답합니다</li>
-          <li><b>기술 개념·프로토콜</b> — 일반 기술 지식으로 답합니다</li>
-          <li><b>타사 장비 모델별 수치</b> — 확인된 자료가 없어 답하지 않고, 비교 항목만 정리해 드립니다</li>
-        </ul>
-        <p class="note">최신 CVE·펌웨어 공지처럼 최근 정보는 조회할 수 없습니다. 회사 내부 정보는 다루지 않습니다.</p>
-      </div>
-    </div>
-  </div>
-
-  <div class="examples" id="examples">
-    <button>방화벽과 IPS는 뭐가 다른가요?</button>
-    <button>BLUEMAX NGF 1300 사양 알려줘</button>
-    <button>SSL 인스펙션은 어떻게 동작하나요?</button>
-    <button>방화벽 도입할 때 비교할 항목 정리해줘</button>
-  </div>
+  <div id="log" class="log" aria-live="polite"></div>
+  <div class="examples" id="examples"></div>
 
   <form id="form" class="composer">
     <textarea id="q" rows="1" placeholder="질문을 입력하세요  (Enter 전송 · Shift+Enter 줄바꿈)" maxlength="2000"></textarea>
