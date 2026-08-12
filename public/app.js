@@ -10,6 +10,7 @@ const q = document.getElementById("q");
 const sendBtn = document.getElementById("send");
 const tabs = document.getElementById("tabs");
 const examples = document.getElementById("examples");
+const intro = document.getElementById("intro");
 
 // 대화 이력은 카테고리마다 따로 둔다. 보안장비 이야기를 하다 Azure 탭으로 옮겼는데
 // 앞의 대화가 그대로 따라가면, 서버가 갈아 끼운 규칙과 이력이 어긋나 답이 흐려진다.
@@ -214,11 +215,10 @@ function select(key) {
 
   for (const b of tabs.children) b.setAttribute("aria-selected", String(b.dataset.key === key));
 
-  // 안내 카드
-  const body = bubble("bot");
-  body.classList.add("intro");
+  // 안내 카드 — 대화 목록 밖에 둔다. 넓은 화면에서는 왼쪽 열에 그대로 남고,
+  // 좁은 화면에서는 맨 위에 놓인다.
   const badge = cat.key !== "secui" && mcpOn ? '<span class="badge">문서 조회</span>' : "";
-  body.innerHTML =
+  intro.innerHTML =
     `<h2>${esc(cat.label)}<span style="color:var(--dim);font-weight:400"> · ${esc(cat.tagline)}</span>${badge}</h2>` +
     `<ul class="scope">${cat.intro.map(([t, d]) => `<li><b>${esc(t)}</b> — ${esc(d)}</li>`).join("")}</ul>` +
     `<p class="note">${esc(cat.note)}</p>`;

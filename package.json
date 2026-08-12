@@ -2,7 +2,7 @@
   "name": "nexpert-tech",
   "version": "0.1.0",
   "private": true,
-  "description": "넥스퍼트시스템즈 보안장비 기술 Q&A — Bedrock(Claude Opus 5) 기반",
+  "description": "NEXPERT TechDesk — 보안장비·Azure·AWS 기술 지원 Q&A. Bedrock(Claude Opus 5) 기반",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
