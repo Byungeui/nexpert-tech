@@ -91,6 +91,40 @@ SECUI 브로셔를 옮겨 적을 때 SD-WAN 설명 두 군데가 원문에서 �
 ⚠ 진짜 최후의 방어선은 코드가 아니라 **AWS Budgets 알람**이다. 재시작으로 카운터가
 초기화돼도 예산 알람은 초기화되지 않는다. 둘 다 있어야 한다.
 
+예산 알람은 계정 전체 월 **USD 100** 기준으로 걸려 있다(실제 80% · 실제 100% · **예측** 100%,
+수신 `beseo@nexperts.co.kr`). 예측 알림이 셋 중 가장 쓸모 있다 — 나머지 둘은 이미 쓴 뒤에
+알려준다. 다만 결제 데이터가 모이는 데 하루 가까이 걸리므로 **실시간 방어가 아니다.**
+앞단은 `limits.js`가 막고, 뒷단을 예산이 받는다.
+
+---
+
+## 인증을 앱에 넣지 않고 앞단에 세운 이유
+
+로그인은 **Cloudflare Access**가 처리한다. 이 저장소에는 사용자 표도, 세션도, 로그인
+경로도 없다. `tech.nexperts.co.kr`에 붙은 Access 애플리케이션이 **회사 메일
+(`@nexperts.co.kr`)로 끝나는 사람만** 통과시키고, 인증 방식은 이메일 6자리 코드다.
+
+Admin의 패스키·OTP 구조를 여기에 복제하지 않은 이유는 위의 "왜 Admin과 분리했는가"와 같다.
+**인증을 앱에 넣는 순간 `auth.js`·`perms.js`가 두 벌이 되고, 앞으로 인증을 고칠 때마다
+저장소 두 곳을 같이 고쳐야 한다.** 앞단에 두면 그 부담이 아예 생기지 않는다.
+
+처음에는 ALB 보안 그룹을 대표 IP 하나로 잠가 뒀는데, **모바일에서 성립하지 않아서** 버렸다.
+LTE는 접속할 때마다 IP가 바뀐다. IP 제한을 걷어낸 자리를 인증이 채운 것이다.
+
+> ⚠ **ALB 보안 그룹은 Cloudflare 대역만 허용해야 한다.** 이것이 인증의 절반이다.
+> 인터넷 전체에 열어두면 ALB 주소(`nexpert-tech-alb-….elb.amazonaws.com`)로 직접
+> 들어와 **Access를 통째로 건너뛴다.** 관문은 Cloudflare에 있고, 앱은 관문 없이도
+> 응답하기 때문이다.
+>
+> 대역은 관리형 접두사 목록 `cloudflare-ipv4`로 묶어 뒀다. Cloudflare가 대역을 바꾸면
+> (`https://www.cloudflare.com/ips-v4`가 정본) 그 목록 한 곳만 고치면 된다.
+> DNS 레코드도 **반드시 프록시(주황 구름)** 여야 한다. 회색으로 돌리는 순간 트래픽이
+> Cloudflare를 지나지 않아 인증이 사라진다.
+
+세션은 한 달이다. 기기·브라우저마다 한 번씩 로그인하고 그 뒤로는 묻지 않는다. 길게 잡아도
+되는 이유는 `Team & Resources → Users`에서 **세션을 취소할 수 있기 때문**이고, 애초에 이
+사이트에는 사내 문서가 없어서 Admin과 위험의 크기가 다르다.
+
 ---
 
 ## 환경변수
@@ -124,11 +158,62 @@ git push → GitHub Actions → Docker 빌드 → ECR 푸시 → ECS 서비스 �
 | ECR | `774118824757.dkr.ecr.ap-northeast-2.amazonaws.com/nexpert-tech` |
 | ECS 리전 | `ap-northeast-2` (서울) |
 | Bedrock 리전 | `us-east-1` |
+| ECS 클러스터 · 서비스 | 둘 다 `nexpert-tech` (Fargate 0.5 vCPU · 1 GB, 태스크 1개) |
+| ALB | `nexpert-tech-alb` — HTTPS 443 → 타깃 그룹 `nexpert-tech-tg`(IP 유형, 8080, `/health`) |
+| 인증서 | ACM `tech.nexperts.co.kr` — **서울 리전**에 있어야 ALB에 붙는다 |
+| 보안 그룹 | `nexpert-tech-alb-sg`(Cloudflare 대역만) → `nexpert-tech-task-sg`(ALB에서만 8080) |
+| 로그 | CloudWatch `/ecs/nexpert-tech` |
 | Task Role | `nexpert-tech-task-role` (Bedrock 호출 권한) |
 | Task Execution Role | `ecsTaskExecutionRole` (ECR pull · 로그) |
 
+⚠ 클러스터·서비스 이름이 `deploy.yml`의 `ECS_CLUSTER`·`ECS_SERVICE`와 **글자 하나까지
+같아야 한다.** 다르면 배포가 "서비스가 아직 없습니다"라며 **성공으로 끝난다** — 실패로
+표시되지 않으므로 새 코드가 안 올라간 걸 한참 모른다.
+
 ⚠ `ecsTaskExecutionRole`의 신뢰 정책에 걸린 리전 조건이 `ap-northeast-2`인지 확인한다.
 다르면 태스크가 **"이미지를 못 받는다"**는 엉뚱한 증상으로 실패한다.
+
+⚠ 태스크에 **퍼블릭 IP 할당을 켜 둔다.** 기본 VPC에는 NAT 게이트웨이가 없어서, 끄면
+바깥으로 나갈 길이 없어 ECR에서 이미지를 못 받는다. 증상은 이미지 오류로 나타나지만
+원인은 네트워크다. 인바운드는 `nexpert-tech-task-sg`가 ALB로 한정하므로 노출되지 않는다.
+
+**과금은 트래픽이 아니라 시간에 붙는다.** Fargate는 Azure Container Apps와 달리 0으로
+축소되지 않는다. 질문이 0건이어도 태스크 1개와 ALB가 상시 과금되어 **월 $40 안팎**이
+기본으로 나간다(공시 요금 기준 어림값). 오래 쉬게 할 거면 서비스의 원하는 태스크를 0으로
+내린다 — ALB 요금은 그래도 남는다.
+
+---
+
+## 모델 ID — `bedrock-mantle`과 `bedrock-runtime`은 다른 서비스다
+
+`server.js`가 쓰는 `AnthropicBedrockMantle`은 `bedrock-mantle.{리전}.api.aws/anthropic`에
+붙는다. Bedrock 콘솔이 보여주는 모델 카탈로그·추론 프로파일은 **`bedrock-runtime` 쪽**이라
+서로 다른 접점이다. **콘솔에서 본 ID를 그대로 여기 넣으면 안 된다** — 실제로 넣어 봤고
+`global.anthropic.claude-opus-5`는 404였다.
+
+에러 종류로 구분이 된다. 추측하지 말고 이걸 본다.
+
+| 응답 | 뜻 |
+|---|---|
+| **404** `not_found_error` — *does not exist* | 이 접점이 **모르는 이름**이다 (예: 접두사 없는 `claude-opus-5`) |
+| **403** `permission_error` — *is not available for this account* | 이름은 **알아듣고** 계정에 권한이 없다 |
+
+즉 `anthropic.` 접두사가 붙은 형태가 이 접점이 아는 이름이다.
+
+⚠ IAM 액션도 `bedrock:InvokeModel*`이 아니라 **`bedrock-mantle:CreateInference`** 다.
+리소스는 프로젝트 ARN(`arn:aws:bedrock-mantle:us-east-1:…:project/proj_…`)으로 좁혀 둔다.
+`"Resource": "*"`로 열지 않는다.
+
+### 2026-08 현재 — 계정 자체가 막혀 있다
+
+Anthropic 모델 호출이 전부 403이다. **모델이나 IAM 문제가 아니다.** AWS Marketplace가
+`AWS account registration is incomplete or revoked`를 표시하고, **루트 계정으로 연
+Bedrock Playground에서도 같은 에러**가 난다. 결제 수단·연락처·세금 등록을 채워도 남아
+있어서 AWS Support 케이스(계정 및 결제)를 열어 둔 상태다.
+
+이 사이트는 그것 하나 때문에 답변을 못 한다. 인프라는 전부 서 있다.
+**모델 ID를 더 바꿔 보는 것은 시간 낭비다** — 계정이 열리면 `anthropic.claude-opus-5`로
+그냥 될 가능성이 높다.
 
 ---
 

@@ -25,24 +25,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # ⚠ 임시 진단 단계 — OIDC 연결이 확인되면 지운다.
-      #   신뢰 정책의 sub 조건과 실제 토큰의 sub 클레임이 다르면 AssumeRole 이 거부된다.
-      #   추측하지 말고 실제 값을 찍어 본다. 서명은 버리고 sub/aud 만 출력하므로
-      #   토큰 자체가 로그에 남지 않는다.
-      - name: OIDC 클레임 확인 (진단용)
-        run: |
-          set -euo pipefail
-          TOKEN=$(curl -sS \
-            -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
-            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=sts.amazonaws.com" | jq -r '.value')
-
-          PAYLOAD=$(echo "$TOKEN" | cut -d. -f2)
-          PAD=$(( (4 - ${#PAYLOAD} % 4) % 4 ))
-          [ "$PAD" -gt 0 ] && PAYLOAD="$PAYLOAD$(printf '=%.0s' $(seq 1 $PAD))"
-
-          echo "── 신뢰 정책의 sub 조건과 아래 값이 정확히 같아야 합니다 ──"
-          echo "$PAYLOAD" | tr '_-' '/+' | base64 -d | jq '{sub, aud, repository, ref, repository_owner}'
-
       # 장기 액세스 키를 쓰지 않는다. GitHub 이 발급한 단기 OIDC 토큰으로
       # IAM 역할을 빌린다 — 저장소에 남는 비밀이 없다.
       - name: AWS 인증 (OIDC)
