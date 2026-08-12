@@ -312,8 +312,12 @@ git push → GitHub Actions → Docker 빌드 → ECR 푸시 → ECS 서비스 �
 
 | 보낸 것 | 결과 |
 |---|---|
-| Claude Opus 5 | `403 permission_error` — *anthropic.claude-opus-5 is not available for this account* |
+| Claude Opus 5 | `403 permission_error` — *is not available for this account* |
+| Claude Opus 4.7 | 같은 403 |
+| Claude Sonnet 5 | 같은 403 |
 | Grok 4.3 | **정상 답변** |
+
+**세대 문제가 아니다. Anthropic 이면 전부 막힌다.**
 
 같은 계정·같은 프로젝트·같은 엔드포인트에서 한쪽만 거절된다. 그러므로 우리 코드도,
 IAM 도, 모델 ID 도, 프로젝트 ID 도 원인이 아니다. **앱을 빼고 AWS 자기 콘솔로 쏴도
@@ -334,9 +338,32 @@ IAM 도, 모델 ID 도, 프로젝트 ID 도 원인이 아니다. **앱을 빼고
 계정 전체로 넘겨짚었다. Grok 이 답하는 것으로 뒤집혔다. **한 모델의 실패를 계정 전체의
 실패로 일반화하지 마라 — 다른 회사 모델 하나를 쏴 보면 30초에 갈린다.**
 
+### Marketplace 계약까지 만들어 봤지만 안 뚫렸다
+
+`aws bedrock get-foundation-model-availability` 로 짚으니 네 항목 중 **`agreementAvailability`
+하나만 `NOT_AVAILABLE`** 이었다. 콘솔의 Marketplace 구독 버튼은 비활성이었지만
+**API 로는 계약을 만들 수 있었다.**
+
+```bash
+aws bedrock list-foundation-model-agreement-offers --model-id anthropic.claude-opus-5 --offer-type ALL --region us-east-1
+aws bedrock create-foundation-model-agreement --model-id anthropic.claude-opus-5 --offer-token "$TOKEN" --region us-east-1
+```
+
+계약은 정상 생성됐다 (`agmt-2ekfpq9wa7zvxhd4m22et0o4`, offer `offer-f3u6lgbrem3zs`,
+구매금액 0.00 USD 종량제). 15분 뒤 네 항목이 전부 `AVAILABLE`·`AUTHORIZED` 가 됐다.
+**그런데 런타임은 여전히 거절한다** — `bedrock-mantle` 도, `bedrock-runtime` 의
+`Converse` 도(추론 프로파일 `global.` 로 바꿔도 동일). 오퍼는 하나뿐이라 더 계약할 것도 없다.
+
+즉 **AWS 의 사용권 컨트롤 플레인과 런타임이 어긋난 상태**이고, 계정 쪽에서 누를 버튼은
+남아 있지 않다. 같은 증상이 밖에도 보고돼 있다 —
+[re:Post](https://repost.aws/questions/QU_-WCZSBLQyyYo2VBbkwrqA/amazon-bedrock-http-403-model-is-not-available-for-this-account-when-invoking-claude-fable-5-claude-sonnet-5-claude-opus-4-7-and-claude-opus-4-8),
+[claude-code #51183](https://github.com/anthropics/claude-code/issues/51183).
+
+⚠ **`get-foundation-model-availability` 가 전부 AVAILABLE 이어도 호출은 실패할 수 있다.**
+이 명령은 계약·권한을 볼 뿐 런타임 반영을 보증하지 않는다. **판정은 실제 호출로 한다.**
+
 오류 문구가 안내하는 곳은 Support 가 아니라 **AWS Sales**(`aws.amazon.com/contact-us/sales-support/`)다.
-기술 장애가 아니라 **모델 사용권 계약** 문제라는 뜻이다. 열어 둔 Support 케이스는
-'계정 및 결제'라 창구가 다를 수 있다.
+열어 둔 Support 케이스는 '계정 및 결제'라 창구가 다르다 — 기술 지원(Amazon Bedrock)으로 올려야 한다.
 
 이 사이트는 그것 하나 때문에 답변을 못 한다. 인프라는 전부 서 있다.
 **모델 ID를 더 바꿔 보는 것은 시간 낭비다.**
