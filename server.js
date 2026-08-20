@@ -9,17 +9,24 @@
 
 const express = require("express");
 const path = require("path");
-const { AnthropicBedrockMantle } = require("@anthropic-ai/bedrock-sdk");
+const { AnthropicBedrock } = require("@anthropic-ai/bedrock-sdk");
 const { systemBlocks } = require("./src/grounding");
 const categories = require("./src/categories");
 const limits = require("./src/limits");
 
 const PORT = Number(process.env.PORT || 8080);
-// ECS 는 서울(ap-northeast-2)에서 돌지만 Bedrock 은 us-east-1 이다.
+// ECS 는 서울(ap-northeast-2)에서 돌지만 Bedrock 은 us-west-2 다.
 // AWS_REGION 을 그대로 쓰면 서울로 요청이 가서 실패하므로 따로 받는다.
-const BEDROCK_REGION = process.env.BEDROCK_REGION || "us-east-1";
-const PROJECT_ID = process.env.BEDROCK_PROJECT_ID;
-const MODEL = process.env.BEDROCK_MODEL || "anthropic.claude-opus-5";
+//
+// ⚠ 서울(ap-northeast-2)로 바꾸지 마라. Claude 교차 리전 추론 할당량이 서울만 0 이다
+//   (다른 리전은 30M). 지연시간이 아까워도 여기서는 답이 아예 안 온다.
+const BEDROCK_REGION = process.env.BEDROCK_REGION || "us-west-2";
+// ⚠ `us.` 는 교차 리전 추론 프로파일 접두사다. 빼면 on-demand 를 못 찾아 실패한다.
+//
+// 왜 Opus 5 가 아니라 4.6 인가: 이 계정은 **최신 세대(Opus 5·Sonnet 5·Opus 4.8·4.7)만**
+// 거절당한다 — "account history" 를 이유로 든 AWS 의 용량 배분이다. 4.6 이하는 정상
+// 동작한다. 열리면 이 값만 `us.anthropic.claude-opus-5` 로 바꾸면 된다. README 참고.
+const MODEL = process.env.BEDROCK_MODEL || "us.anthropic.claude-opus-4-6-v1";
 const MAX_TOKENS = Number(process.env.MAX_TOKENS || 4096);
 const MAX_HISTORY = 10;
 
@@ -27,22 +34,16 @@ const MAX_HISTORY = 10;
 // Azure·AWS 카테고리는 벤더가 운영하는 원격 MCP 서버로 공식 문서를 조회한다
 // (src/categories.js 의 MCP 참조). **기본값은 꺼짐**이다.
 //
-// 왜 꺼두는가: 이 접점(bedrock-mantle)에서 MCP 커넥터가 동작하는지 아직 확인하지
-// 못했다. 모델 호출 자체가 계정 문제로 막혀 있어 검증할 수가 없었다. 켜둔 채로
-// 두면 나중에 실패했을 때 **"MCP가 안 되는 건지 계정이 안 열린 건지" 구분이 안 된다.**
-// 계정이 열려 일반 답변이 되는 것을 먼저 확인하고, 그다음 이 값을 켠다.
+// 왜 꺼두는가: 이 접점(bedrock-runtime)에서 MCP 커넥터가 동작하는지 아직 확인하지
+// 못했다. 그동안은 모델 호출 자체가 막혀 검증할 수가 없었다. 켜둔 채로 두면 실패했을 때
+// **"MCP가 안 되는 건지 모델이 안 열린 건지" 구분이 안 된다.**
+// **먼저 일반 답변이 나오는 것을 확인하고, 그다음 이 값을 켜서 따로 검증한다.**
 const MCP_ENABLED = process.env.MCP_ENABLED === "1";
 const MCP_BETA = "mcp-client-2025-04-04";
 
-if (!PROJECT_ID) {
-  console.error("[fatal] BEDROCK_PROJECT_ID 가 없습니다 (콘솔의 anthropic-workspace-id).");
-  process.exit(1);
-}
-
-const client = new AnthropicBedrockMantle({
-  awsRegion: BEDROCK_REGION,
-  defaultHeaders: { "anthropic-workspace-id": PROJECT_ID },
-});
+// `bedrock-runtime` 에는 프로젝트(workspace) 개념이 없다. 예전 `bedrock-mantle` 접점이
+// 요구하던 `BEDROCK_PROJECT_ID`·`anthropic-workspace-id` 헤더는 함께 지웠다.
+const client = new AnthropicBedrock({ awsRegion: BEDROCK_REGION });
 
 const app = express();
 // ALB 뒤에 있다. 켜지 않으면 모든 요청의 IP 가 ALB 사설 IP 로 보여

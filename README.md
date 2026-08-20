@@ -69,10 +69,10 @@ SECUI는 밖에서 조회할 데가 없어 사본이 전부고, 그래서 "자�
 Learn 쪽 URL에 `maxTokenBudget`을 걸어 둔 이유는 비용이다. 조회 결과가 통째로 컨텍스트에
 들어오면 질문 하나의 토큰이 몇 배가 되고 `limits.js`의 하루 상한이 순식간에 닳는다.
 
-> ⚠ **`MCP_ENABLED`는 기본 꺼짐이다.** 이 접점(`bedrock-mantle`)에서 MCP 커넥터가 도는지
-> 아직 확인하지 못했다 — 모델 호출 자체가 계정 문제로 막혀 검증할 수 없었다. 켜둔 채로
-> 두면 실패했을 때 **MCP 탓인지 계정 탓인지 구분이 안 된다.** 계정이 열려 일반 답변이
-> 되는 것을 먼저 확인하고, 그다음 `MCP_ENABLED=1`로 켠다.
+> ⚠ **`MCP_ENABLED`는 기본 꺼짐이다.** 이 접점(`bedrock-runtime`)에서 MCP 커넥터가 도는지
+> 아직 확인하지 못했다 — 그동안 모델 호출 자체가 막혀 검증할 수 없었다. 켜둔 채로
+> 두면 실패했을 때 **MCP 탓인지 모델 탓인지 구분이 안 된다.** 일반 답변이 나오는 것을
+> 먼저 확인하고, 그다음 `MCP_ENABLED=1`로 켜서 따로 검증한다.
 >
 > MCP 를 쓰는 카테고리만 `beta.messages` 경로로 보낸다. SECUI 까지 beta 로 보내면
 > 문제가 생겼을 때 원인이 하나 더 늘어난다.
@@ -230,9 +230,8 @@ LTE는 접속할 때마다 IP가 바뀐다. IP 제한을 걷어낸 자리를 인
 
 | 이름 | 필수 | 기본값 | 설명 |
 |---|---|---|---|
-| `BEDROCK_PROJECT_ID` | ✅ | — | 콘솔의 `anthropic-workspace-id` (`proj_…`). 없으면 부팅 실패 |
-| `BEDROCK_REGION` | | `us-east-1` | **Bedrock 리전.** ECS는 서울이지만 Bedrock은 여기다 |
-| `BEDROCK_MODEL` | | `anthropic.claude-opus-5` | Bedrock 모델 ID는 `anthropic.` 접두사가 붙는다 |
+| `BEDROCK_REGION` | | `us-west-2` | **Bedrock 리전.** ECS는 서울이지만 Bedrock은 여기다. ⚠ 서울로 바꾸지 마라 — 아래 참고 |
+| `BEDROCK_MODEL` | | `us.anthropic.claude-opus-4-6-v1` | 교차 리전 추론 프로파일 ID. `us.` 접두사를 빼면 실패한다 |
 | `PORT` | | `8080` | |
 | `IP_MAX_REQUESTS` | | `10` | IP당 창(window) 내 최대 요청 |
 | `IP_WINDOW_MS` | | `60000` | 창 길이 |
@@ -257,7 +256,7 @@ git push → GitHub Actions → Docker 빌드 → ECR 푸시 → ECS 서비스 �
 |---|---|
 | ECR | `774118824757.dkr.ecr.ap-northeast-2.amazonaws.com/nexpert-tech` |
 | ECS 리전 | `ap-northeast-2` (서울) |
-| Bedrock 리전 | `us-east-1` |
+| Bedrock 리전 | `us-west-2` (오리건) |
 | ECS 클러스터 · 서비스 | 둘 다 `nexpert-tech` (Fargate 0.5 vCPU · 1 GB, 태스크 1개) |
 | ALB | `nexpert-tech-alb` — HTTPS 443 → 타깃 그룹 `nexpert-tech-tg`(IP 유형, 8080, `/health`) |
 | 인증서 | ACM `tech.nexperts.co.kr` — **서울 리전**에 있어야 ALB에 붙는다 |
@@ -284,83 +283,73 @@ git push → GitHub Actions → Docker 빌드 → ECR 푸시 → ECS 서비스 �
 
 ---
 
-## 모델 ID — `bedrock-mantle`과 `bedrock-runtime`은 다른 서비스다
+## 모델 ID — 왜 Opus 5 가 아니라 4.6 인가
 
-`server.js`가 쓰는 `AnthropicBedrockMantle`은 `bedrock-mantle.{리전}.api.aws/anthropic`에
-붙는다. Bedrock 콘솔이 보여주는 모델 카탈로그·추론 프로파일은 **`bedrock-runtime` 쪽**이라
-서로 다른 접점이다. **콘솔에서 본 ID를 그대로 여기 넣으면 안 된다** — 실제로 넣어 봤고
-`global.anthropic.claude-opus-5`는 404였다.
+**이 계정은 Anthropic 최신 세대만 거절당한다.** 공급자 차단이 아니라 세대 경계다.
+2026-08-20 에 `us-west-2` 에서 하나씩 쏴 보고 그은 선이다.
 
-에러 종류로 구분이 된다. 추측하지 말고 이걸 본다.
-
-| 응답 | 뜻 |
+| 모델 | 결과 |
 |---|---|
-| **404** `not_found_error` — *does not exist* | 이 접점이 **모르는 이름**이다 (예: 접두사 없는 `claude-opus-5`) |
-| **403** `permission_error` — *is not available for this account* | 이름은 **알아듣고** 계정에 권한이 없다 |
+| Opus 5 · Sonnet 5 · Opus 4.8 · Opus 4.7 | `AccessDeniedException` — *is not available for this account* |
+| **Opus 4.6 · Sonnet 4.6 · Opus 4.5 · Sonnet 4.5 · Haiku 4.5** | **정상 답변** |
+| Claude 3 Haiku · Opus 4.1 | `ResourceNotFoundException` — *marked by provider as **Legacy*** (계정 문제 아님) |
 
-즉 `anthropic.` 접두사가 붙은 형태가 이 접점이 아는 이름이다.
+그래서 기본 모델은 **`us.anthropic.claude-opus-4-6-v1`** 이다.
+AWS 가 최신 세대를 열어 주면 `BEDROCK_MODEL` 을 `us.anthropic.claude-opus-5` 로
+바꾸는 것으로 끝난다 — 코드는 건드릴 필요가 없다.
 
-⚠ IAM 액션도 `bedrock:InvokeModel*`이 아니라 **`bedrock-mantle:CreateInference`** 다.
-리소스는 프로젝트 ARN(`arn:aws:bedrock-mantle:us-east-1:…:project/proj_…`)으로 좁혀 둔다.
-`"Resource": "*"`로 열지 않는다.
+⚠ **`us.` 접두사를 빼지 마라.** 교차 리전 추론 프로파일 ID 다. 빼면 on-demand 경로를
+찾지 못해 실패한다.
 
-### 2026-08 현재 — Anthropic 모델에만 사용권이 없다
+⚠ **`BEDROCK_REGION` 을 서울(`ap-northeast-2`)로 바꾸지 마라.** Claude 교차 리전 추론
+할당량이 **서울만 0** 이다(us-west-2·us-east-2·eu-central-1·ap-northeast-1 은 30M).
+지연시간이 아까워 보여도 여기서는 답이 아예 안 온다.
 
-**계정은 정상이다. 잠긴 것은 Anthropic 모델 한 벌뿐이다.**
+### `bedrock-mantle` 은 버렸다
 
-`bedrock-mantle` 콘솔(`Projects → claude-project-chatbot → Workbench`)에서 직접 확인했다.
+예전 `server.js` 는 `AnthropicBedrockMantle` 로 `bedrock-mantle.{리전}.api.aws/anthropic`
+에 붙었다. 그 접점은 **us-east-1 에만 존재**하고, 거기 Claude 할당량이 **0 으로 눌려 있어**
+어떤 모델도 통과하지 못했다. 지금은 `AnthropicBedrock`(= `bedrock-runtime`)을 쓴다.
 
-| 보낸 것 | 결과 |
+바뀐 것: `BEDROCK_PROJECT_ID` 와 `anthropic-workspace-id` 헤더가 **사라졌다.**
+`bedrock-runtime` 에는 프로젝트(workspace) 개념이 없다. Messages API 형태는 같아서
+스트리밍·시스템 블록·프롬프트 캐싱 코드는 한 줄도 안 바뀌었다.
+
+⚠ **IAM 액션도 함께 바뀌었다.** `bedrock-mantle:CreateInference` 가 아니라
+**`bedrock:InvokeModel` · `bedrock:InvokeModelWithResponseStream`** 이다. 그리고
+교차 리전 프로파일은 **프로파일 ARN 과 대상 리전들의 기반 모델 ARN 양쪽 모두**에
+권한이 있어야 한다 — 한쪽만 주면 호출이 거절된다. `"Resource": "*"` 로 열지 않는다.
+
+### 여기까지 오는 데 일주일이 걸렸다 — 헛짚은 것들
+
+원인은 **신규 계정이라 최신 세대 용량을 못 받은 것** 하나였다. AWS 가 할당량 거절
+메일에서 *"리전 가용성, **계정 이력**, 사용 패턴"* 이라고 직접 말했다. 그 전까지 지운
+가설을 남겨 둔다 — 같은 길을 다시 걷지 않기 위해서다.
+
+| 헛짚은 것 | 어떻게 지워졌나 |
 |---|---|
-| Claude Opus 5 | `403 permission_error` — *is not available for this account* |
-| Claude Opus 4.7 | 같은 403 |
-| Claude Sonnet 5 | 같은 403 |
-| Grok 4.3 | **정상 답변** |
+| 우리 코드·IAM·모델 ID·프로젝트 ID | 앱을 빼고 AWS 콘솔에서 쏴도 똑같이 거절 |
+| "계정 자체가 막혀 있다" | Grok 4.3 이 정상 답변 |
+| "Marketplace 경유 여부가 경계다" | OpenAI GPT-5.6 도 401 인데 AWS 의 비-Marketplace 목록에 있다 |
+| "Anthropic 이면 전부 막힌다" | **Opus 4.6 이 답했다** |
+| Marketplace 계약 부재 | API 로 계약 생성 성공(`agmt-2ekfpq9wa7zvxhd4m22et0o4`), 그래도 런타임은 거절 |
+| 고객 확인·결제 수단·세금 설정 | 콘솔에서 확인 — 추가로 할 것이 없었다 |
+| 할당량 증가 요청 | 자동 거절 (케이스 178721018200812) |
+| 리전을 바꾸면 될 것 | 5개 리전 전부 같은 계정 단위 거절 |
+| `Claude Platform on AWS` 로 우회 | Marketplace 구독 버튼 비활성 — `registration is incomplete or revoked` |
 
-**세대 문제가 아니다. Anthropic 이면 전부 막힌다.**
+⚠ **`get-foundation-model-availability` 가 전부 `AVAILABLE` 이어도 호출은 실패할 수 있다.**
+이 명령은 계약·권한을 볼 뿐 런타임 반영을 보증하지 않는다. Service Quotas 의 값도
+마찬가지다 — 0 이 아니라고 쓸 수 있는 게 아니고, 그냥 **AWS 기본값이 보이는 것**일 뿐이다.
+**판정은 언제나 실제 호출로 한다.**
 
-같은 계정·같은 프로젝트·같은 엔드포인트에서 한쪽만 거절된다. 그러므로 우리 코드도,
-IAM 도, 모델 ID 도, 프로젝트 ID 도 원인이 아니다. **앱을 빼고 AWS 자기 콘솔로 쏴도
-똑같이 거절당한다** — 이 사실이 나머지 가설을 전부 지운다.
+⚠ **모델 하나의 실패를 계정 전체의 실패로 일반화하지 마라.** 이 세션에서 그렇게 두 번
+결론 냈다가 두 번 틀렸다. 다른 공급자, 그리고 **같은 공급자의 다른 세대**를 각각 쏴 보면
+30초에 갈린다.
 
-같은 화면에서 확인된 것:
-
-- 모델 ID 는 **`anthropic.claude-opus-5`** 가 맞다 (모델 상세 패널에 그대로 적혀 있다).
-- 프로젝트 ID `proj_u2jip7h633rhkaumuwwl` = `claude-project-chatbot`. 앱이 보내는
-  `anthropic-workspace-id` 헤더가 맞다.
-- 모델 상세의 **`입력 TPM 0 (기본값: 20M)`** 은 계정 한도가 아니라 **그 모델에 사용권이
-  없어서 0**이다. 프로젝트 편집 화면에는 한도를 올리는 항목 자체가 없다.
-- 카탈로그에서 `제한됨` 배지는 Claude Fable 5 에만 붙는다. Opus 5 는 목록에 정상으로
-  보인다 — **목록에 보인다고 쓸 수 있는 것이 아니다.**
-
-⚠ **한때 "계정 자체가 막혀 있다"고 적어 두었는데 틀린 진단이었다.** Marketplace 의
-`AWS account registration is incomplete or revoked` 배너와 Playground 실패를 보고
-계정 전체로 넘겨짚었다. Grok 이 답하는 것으로 뒤집혔다. **한 모델의 실패를 계정 전체의
-실패로 일반화하지 마라 — 다른 회사 모델 하나를 쏴 보면 30초에 갈린다.**
-
-### Marketplace 계약까지 만들어 봤지만 안 뚫렸다
-
-`aws bedrock get-foundation-model-availability` 로 짚으니 네 항목 중 **`agreementAvailability`
-하나만 `NOT_AVAILABLE`** 이었다. 콘솔의 Marketplace 구독 버튼은 비활성이었지만
-**API 로는 계약을 만들 수 있었다.**
-
-```bash
-aws bedrock list-foundation-model-agreement-offers --model-id anthropic.claude-opus-5 --offer-type ALL --region us-east-1
-aws bedrock create-foundation-model-agreement --model-id anthropic.claude-opus-5 --offer-token "$TOKEN" --region us-east-1
-```
-
-계약은 정상 생성됐다 (`agmt-2ekfpq9wa7zvxhd4m22et0o4`, offer `offer-f3u6lgbrem3zs`,
-구매금액 0.00 USD 종량제). 15분 뒤 네 항목이 전부 `AVAILABLE`·`AUTHORIZED` 가 됐다.
-**그런데 런타임은 여전히 거절한다** — `bedrock-mantle` 도, `bedrock-runtime` 의
-`Converse` 도(추론 프로파일 `global.` 로 바꿔도 동일). 오퍼는 하나뿐이라 더 계약할 것도 없다.
-
-즉 **AWS 의 사용권 컨트롤 플레인과 런타임이 어긋난 상태**이고, 계정 쪽에서 누를 버튼은
-남아 있지 않다. 같은 증상이 밖에도 보고돼 있다 —
+같은 증상이 밖에도 보고돼 있다 —
 [re:Post](https://repost.aws/questions/QU_-WCZSBLQyyYo2VBbkwrqA/amazon-bedrock-http-403-model-is-not-available-for-this-account-when-invoking-claude-fable-5-claude-sonnet-5-claude-opus-4-7-and-claude-opus-4-8),
 [claude-code #51183](https://github.com/anthropics/claude-code/issues/51183).
-
-⚠ **`get-foundation-model-availability` 가 전부 AVAILABLE 이어도 호출은 실패할 수 있다.**
-이 명령은 계약·권한을 볼 뿐 런타임 반영을 보증하지 않는다. **판정은 실제 호출로 한다.**
 
 ### 이미 확인해서 아닌 것 (다시 돌지 마라)
 
