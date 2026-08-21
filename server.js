@@ -13,6 +13,8 @@ const { AnthropicBedrock } = require("@anthropic-ai/bedrock-sdk");
 const { systemBlocks } = require("./src/grounding");
 const categories = require("./src/categories");
 const limits = require("./src/limits");
+const pricing = require("./src/pricing");
+const identity = require("./src/identity");
 
 const PORT = Number(process.env.PORT || 8080);
 // ECS 는 서울(ap-northeast-2)에서 돌지만 Bedrock 은 us-west-2 다.
@@ -86,6 +88,9 @@ app.post("/api/chat", async (req, res) => {
   // 클라이언트가 보낸 카테고리를 그대로 믿지 않는다. 목록에 없으면 기본값이 된다.
   const category = categories.resolve(req.body?.category);
 
+  // Cloudflare Access 가 붙여 준 신원. 사용량 로그의 이름표로만 쓴다 — src/identity.js
+  const user = identity.userOf(req);
+
   // 대화 이력은 클라이언트가 보낸다. 그대로 믿으면 토큰 폭탄이 되므로
   // 길이와 개수를 서버에서 자른다.
   const history = Array.isArray(req.body?.history) ? req.body.history : [];
@@ -134,12 +139,31 @@ app.post("/api/chat", async (req, res) => {
 
     const final = await stream.finalMessage();
     limits.record(final.usage);
-    send("done", {
+
+    const used = {
       cacheRead: final.usage?.cache_read_input_tokens ?? 0,
       cacheWrite: final.usage?.cache_creation_input_tokens ?? 0,
       input: final.usage?.input_tokens ?? 0,
       output: final.usage?.output_tokens ?? 0,
-    });
+    };
+    // 비용은 **서버가 계산한다.** 요율을 화면 코드에 두면 요율이 바뀔 때마다 배포가
+    // 필요하고, 캐시된 옛 app.js 를 쥔 브라우저는 다른 금액을 보여준다.
+    // 요율의 정본은 src/pricing.js 한 곳이다. 모르는 요율이면 null 이 온다.
+    used.costUsd = pricing.costUsd(MODEL, final.usage);
+
+    // ── 사용량 기록 ─────────────────────────────────────────────────
+    // 한 줄짜리 JSON 으로 남긴다. 이미 CloudWatch 로 보내고 있으므로 **새로 붙이는
+    // 인프라가 없다.** Logs Insights 에서 이렇게 집계한다:
+    //   filter evt="usage" | stats sum(costUsd) as usd, sum(output) by user
+    //
+    // ⚠ **질문과 답변 본문은 남기지 않는다.** 비용 집계에 필요 없고, 남기는 순간
+    //   고객사 이야기가 로그에 쌓인다. 대화 본문은 각자 브라우저에만 둔다
+    //   (public/store.js 참고).
+    console.log(JSON.stringify({
+      evt: "usage", user, category: category.key, model: MODEL, ...used,
+    }));
+
+    send("done", used);
   } catch (e) {
     // 원인은 서버 로그에만 남긴다. 사용자에게 AWS 에러 원문을 보이면
     // 계정 번호나 역할 이름 같은 게 노출될 수 있다.

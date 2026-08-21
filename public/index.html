@@ -17,14 +17,24 @@
 
 <header class="top">
   <div class="wrap">
-    <div class="brand">
-      <svg class="mark" width="34" height="34" viewBox="0 0 48 48" fill="none" aria-hidden="true">
-        <path d="M24 3 42.2 13.5v21L24 45 5.8 34.5v-21L24 3z" fill="rgba(59,140,255,0.1)" stroke="#3b8cff" stroke-width="2.4" stroke-linejoin="round"/>
-        <path d="M17 31.5v-15M17 16.5l14 15M31 31.5v-15" stroke="#38d9f0" stroke-width="3.1" stroke-linecap="round" stroke-linejoin="round"/>
-        <circle cx="17" cy="16.5" r="2.5" fill="#3b8cff"/>
-        <circle cx="31" cy="31.5" r="2.5" fill="#3b8cff"/>
-      </svg>
-      <span class="word"><b>NEXPERT</b> TechDesk</span>
+    <div class="headrow">
+      <div class="brand">
+        <svg class="mark" width="34" height="34" viewBox="0 0 48 48" fill="none" aria-hidden="true">
+          <path d="M24 3 42.2 13.5v21L24 45 5.8 34.5v-21L24 3z" fill="rgba(59,140,255,0.1)" stroke="#3b8cff" stroke-width="2.4" stroke-linejoin="round"/>
+          <path d="M17 31.5v-15M17 16.5l14 15M31 31.5v-15" stroke="#38d9f0" stroke-width="3.1" stroke-linecap="round" stroke-linejoin="round"/>
+          <circle cx="17" cy="16.5" r="2.5" fill="#3b8cff"/>
+          <circle cx="31" cy="31.5" r="2.5" fill="#3b8cff"/>
+        </svg>
+        <span class="word"><b>NEXPERT</b> TechDesk</span>
+      </div>
+
+      <!-- ⚠ 대화 목록을 **상설 사이드바로 붙이지 마라.** 옆 열은 한 번 시도했다가
+           대화 내내 비어 있어서 버렸다(style.css 의 --maxw 주석). 평소엔 감춰 두고
+           눌렀을 때만 열리는 서랍이어야 한 열 배치가 유지된다. -->
+      <div class="actions">
+        <button id="newchat" type="button">새 대화</button>
+        <button id="openchats" type="button" aria-haspopup="dialog">대화 <span id="chatcount">0</span></button>
+      </div>
     </div>
 
     <!-- 카테고리는 서버(/api/categories)가 주는 목록으로 그린다 -->
@@ -48,6 +58,24 @@
   <p class="disclaimer">답변은 참고용입니다. 고객에게 전달하기 전에 벤더 공식 자료로 확인하세요.<span class="keyhint"> · Enter 전송, Shift+Enter 줄바꿈</span></p>
 </main>
 
+<!-- 저장된 대화 서랍. 기본은 닫혀 있다. -->
+<div id="drawer" class="drawer" hidden>
+  <div class="drawer-panel" role="dialog" aria-modal="true" aria-label="저장된 대화">
+    <header>
+      <h2>저장된 대화</h2>
+      <button id="closechats" type="button" aria-label="닫기">×</button>
+    </header>
+    <p class="drawer-note" id="drawernote"></p>
+    <ul id="chatlist" class="chatlist"></ul>
+    <footer>
+      <span id="drawertotal"></span>
+      <button id="clearall" type="button" class="linkdanger">전체 삭제</button>
+    </footer>
+  </div>
+</div>
+
+<!-- ⚠ store.js 가 먼저다. app.js 가 로드 시점에 window.Store 를 쓴다. -->
+<script src="/store.js"></script>
 <script src="/app.js"></script>
 </body>
 </html>
