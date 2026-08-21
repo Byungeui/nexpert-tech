@@ -88,6 +88,14 @@ function render(md) {
     while (i < lines.length && lines[i].trim() && !/^\s*[-*]\s+|^\s*\||^```|^#{1,4}\s/.test(lines[i])) {
       buf.push(lines[i++]);
     }
+    // ⚠ **여기서 한 줄도 못 먹으면 i 가 안 늘어 바깥 while 이 영원히 돈다.**
+    // 위 조건은 `|` 로 시작하는 줄을 제외하는데, 표 분기는 "다음 줄이 구분선일 때만"
+    // 성립한다. 스트리밍 중에는 `| 항목 | 값 |` 까지만 오고 구분선은 아직 안 온다 —
+    // 그 한 틱 동안 두 분기가 서로 미루며 out 이 배열 한계까지 커져
+    // `RangeError: Invalid array length` 로 화면이 죽는다. 답변이 제대로 오는
+    // 순간에만 터지므로, 모델이 막혀 있던 동안에는 드러나지 않았다.
+    // **무슨 줄이든 최소 한 줄은 소비한다** — 이 한 줄이 진행을 보장한다.
+    if (!buf.length) buf.push(lines[i++]);
     out.push(`<p>${inline(buf.join("<br>"))}</p>`);
   }
   return out.join("");
