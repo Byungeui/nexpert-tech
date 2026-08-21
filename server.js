@@ -14,7 +14,8 @@ const { systemBlocks } = require("./src/grounding");
 const categories = require("./src/categories");
 const limits = require("./src/limits");
 const pricing = require("./src/pricing");
-const identity = require("./src/identity");
+const access = require("./src/access");
+const chats = require("./src/chats");
 
 const PORT = Number(process.env.PORT || 8080);
 // ECS 는 서울(ap-northeast-2)에서 돌지만 Bedrock 은 us-west-2 다.
@@ -51,7 +52,12 @@ const app = express();
 // ALB 뒤에 있다. 켜지 않으면 모든 요청의 IP 가 ALB 사설 IP 로 보여
 // 레이트리밋이 전체 사용자에게 하나로 걸린다.
 app.set("trust proxy", true);
-app.use(express.json({ limit: "64kb" }));
+// 질문 하나는 64kb 면 넉넉하다 — 상한을 낮게 두는 것이 방어다.
+// 다만 **대화 저장은 본문 전체를 통째로 보내므로** 그 경로만 상한을 올린다.
+// 전체를 1mb 로 올리면 /api/chat 이 받아도 되는 크기까지 같이 커진다.
+const jsonSmall = express.json({ limit: "64kb" });
+const jsonChats = express.json({ limit: "1mb" });
+app.use((req, res, next) => (req.path.startsWith("/api/chats") ? jsonChats : jsonSmall)(req, res, next));
 // ⚠ 정적 파일에 no-cache 를 붙인다. '캐시 금지'가 아니라 **매번 재검증**이라,
 // 안 바뀌었으면 304 로 끝나 비용은 거의 없다.
 //
@@ -82,6 +88,56 @@ app.get("/api/categories", (_req, res) => res.json({
   // 하므로 요율을 고치면 다음 접속부터 지난 대화까지 새 기준으로 다시 계산된다.
   // 금액을 저장하지 않는 이유는 public/app.js 의 costOf 주석 참고.
   rates: pricing.ratesFor(MODEL),
+  // 서버 저장이 켜져 있는가. 꺼져 있으면 화면이 브라우저 저장으로 돌아간다.
+  chats: access.enabled,
+}));
+
+// ── 대화 저장 ───────────────────────────────────────────────────────
+//
+// ⚠ **모든 경로가 requireUser 로 시작한다.** 사용자를 파티션 키로 쓰기 때문에,
+//   검증되지 않은 이메일이 들어오면 그대로 남의 대화가 된다. 새 경로를 추가할 때
+//   이 감싸개를 빼먹지 마라 — 빼먹어도 동작은 하고, 그래서 눈치채기 어렵다.
+function chatRoute(handler) {
+  return async (req, res) => {
+    let user;
+    try {
+      user = await access.requireUser(req);
+    } catch (e) {
+      return res.status(e.status || 401).json({ error: e.message });
+    }
+    try {
+      await handler(req, res, user);
+    } catch (e) {
+      // 원문은 로그에만. 테이블 이름·계정 번호가 사용자에게 보이면 안 된다.
+      console.error("[chats]", e?.name, e?.message);
+      res.status(500).json({ error: "대화를 저장하지 못했습니다." });
+    }
+  };
+}
+
+app.get("/api/chats", chatRoute(async (_req, res, user) => {
+  res.json({ chats: await chats.list(user) });
+}));
+
+app.get("/api/chats/:id", chatRoute(async (req, res, user) => {
+  const chat = await chats.get(user, req.params.id);
+  if (!chat) return res.status(404).json({ error: "없는 대화입니다." });
+  res.json({ chat });
+}));
+
+app.put("/api/chats/:id", chatRoute(async (req, res, user) => {
+  // 경로의 id 를 쓴다. 본문의 id 를 믿으면 다른 대화를 덮어쓸 수 있다.
+  await chats.put(user, { ...(req.body || {}), id: req.params.id });
+  res.json({ ok: true });
+}));
+
+app.delete("/api/chats/:id", chatRoute(async (req, res, user) => {
+  await chats.remove(user, req.params.id);
+  res.json({ ok: true });
+}));
+
+app.delete("/api/chats", chatRoute(async (_req, res, user) => {
+  res.json({ ok: true, deleted: await chats.clear(user) });
 }));
 
 app.post("/api/chat", async (req, res) => {
@@ -92,8 +148,16 @@ app.post("/api/chat", async (req, res) => {
   // 클라이언트가 보낸 카테고리를 그대로 믿지 않는다. 목록에 없으면 기본값이 된다.
   const category = categories.resolve(req.body?.category);
 
-  // Cloudflare Access 가 붙여 준 신원. 사용량 로그의 이름표로만 쓴다 — src/identity.js
-  const user = identity.userOf(req);
+  // 사용량 로그의 이름표. 검증이 되면 검증된 값을, 안 되면 `unverified:` 를 붙여
+  // 남긴다 — 나중에 집계를 볼 때 확인된 신원인지 헷갈리지 않게.
+  // ⚠ 여기서 검증에 실패해도 **답변은 계속한다.** 로그 이름표 때문에 질문이
+  //   막히면 안 된다. 대화 저장 경로와 달리 이건 권한 판단이 아니다.
+  let user;
+  try {
+    user = await access.requireUser(req);
+  } catch {
+    user = `unverified:${access.label(req)}`;
+  }
 
   // 대화 이력은 클라이언트가 보낸다. 그대로 믿으면 토큰 폭탄이 되므로
   // 길이와 개수를 서버에서 자른다.
@@ -182,6 +246,8 @@ app.post("/api/chat", async (req, res) => {
 
 const server = app.listen(PORT, () => {
   console.log(`nexpert-tech listening on ${PORT} · bedrock=${BEDROCK_REGION} · model=${MODEL}`);
+  // 대화 저장이 조용히 꺼져 있으면 "왜 폰에서 안 보이지"의 원인을 한참 못 찾는다.
+  console.log(`chats: ${access.mode()} · table=${chats.TABLE}@${chats.REGION} · TTL ${chats.TTL_DAYS}일`);
 });
 
 // ECS 는 배포 교체 때 SIGTERM 을 보내고 기본 30초 뒤 SIGKILL 한다.

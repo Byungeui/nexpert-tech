@@ -24,7 +24,7 @@ const chatCount = document.getElementById("chatcount");
 // 그대로 따라가면, 서버가 갈아 끼운 규칙과 이력이 어긋나 답이 흐려진다. 예전에는 탭을
 // 바꿀 때 이력을 **버려서** 그걸 막았는데, 보관이 생긴 지금은 버릴 이유가 없다 —
 // 탭 전환은 "그 카테고리에서 마지막으로 하던 대화로 이동"이다.
-let chatId = null;       // 지금 보고 있는 대화. null 이면 아직 저장 안 된 새 대화
+let chat = null;         // 지금 보고 있는 대화 객체. null 이면 아직 저장 안 된 새 대화
 let current = null;      // 지금 선택된 카테고리 객체
 let catalog = [];        // 서버가 준 카테고리 목록
 let rates = null;        // 서버가 준 100만 토큰당 요율. 없으면 금액을 표시하지 않는다
@@ -242,8 +242,7 @@ async function ask(question) {
   document.body.classList.add("started");
 
   // 서버에 보낼 이력은 **지금 질문을 넣기 전** 상태다. 서버가 질문을 따로 붙인다.
-  const chat = chatId ? Store.get(chatId) : null;
-  const history = chat ? chat.msgs.map((m) => ({ role: m.role, content: m.content })) : [];
+  const history = chat ? (chat.msgs || []).map((m) => ({ role: m.role, content: m.content })) : [];
 
   bubble("user").textContent = question;
   const body = bubble("bot");
@@ -304,10 +303,18 @@ async function ask(question) {
 
     // ⚠ **성공했을 때만 저장한다.** 실패한 질문까지 남으면 다시 열었을 때 질문만
     //   있고 답이 없는 자리가 생기고, 그 이력이 다음 요청에 그대로 실려 간다.
-    if (!chatId) chatId = Store.create(current.key).id;
-    Store.addMsg(chatId, "user", question);
-    Store.addMsg(chatId, "assistant", answer, usage);
+    if (!chat) chat = Store.create(current.key);
+    await Store.addMsg(chat, "user", question);
+    const saved = await Store.addMsg(chat, "assistant", answer, usage);
     attachUsage(body.parentElement, usage);
+    // 서버에 못 올렸으면 알린다. 화면에는 남아 있지만 **다른 기기에서는 안 보인다** —
+    // 조용히 두면 폰에서 없는 걸 보고서야 알게 된다. 다음 접속 때 자동으로 다시 올린다.
+    if (!saved) {
+      const warn = document.createElement("div");
+      warn.className = "usage warn";
+      warn.textContent = "이 기기에만 저장됐습니다. 다시 접속하면 서버로 올립니다.";
+      body.parentElement.appendChild(warn);
+    }
     refreshCount();
   } catch (e) {
     body.innerHTML = `<p class="err">${esc(e.message)}</p>`;
@@ -380,13 +387,16 @@ function setCategory(key) {
   }));
 }
 
-// chat 이 null 이면 '새 대화'다. 이 시점에는 저장하지 않는다 —
+// id 가 null 이면 '새 대화'다. 이 시점에는 저장하지 않는다 —
 // 열어만 보고 안 물으면 빈 대화가 목록에 쌓인다.
-function openChat(chat) {
-  chatId = chat ? chat.id : null;
+//
+// 목록에는 본문이 없으므로 **열 때 받아온다**(Store.get). 그래서 비동기다.
+async function openChat(id) {
+  chat = id ? await Store.get(id) : null;
   log.replaceChildren(introCard(current));
-  document.body.classList.toggle("started", !!(chat && chat.msgs.length));
-  if (chat) for (const m of chat.msgs) drawMsg(m);
+  const msgs = (chat && chat.msgs) || [];
+  document.body.classList.toggle("started", msgs.length > 0);
+  for (const m of msgs) drawMsg(m);
   refreshCount();
   q.focus();
 }
@@ -420,10 +430,10 @@ function chatRow(c) {
   const meta = document.createElement("small");
   meta.textContent = `${catLabel(c.cat)} · ${dateText(c.updated)} · ${usageText(Store.totals(c))}`;
   open.append(title, meta);
-  open.addEventListener("click", () => {
+  open.addEventListener("click", async () => {
     setCategory(c.cat);
-    openChat(Store.get(c.id));
     closeDrawer();
+    await openChat(c.id);
   });
 
   const del = document.createElement("button");
@@ -431,9 +441,10 @@ function chatRow(c) {
   del.className = "chatdel";
   del.textContent = "×";
   del.setAttribute("aria-label", `${c.title} 삭제`);
-  del.addEventListener("click", () => {
-    Store.remove(c.id);
-    if (chatId === c.id) openChat(null);   // 보고 있던 대화를 지웠으면 화면도 비운다
+  del.addEventListener("click", async () => {
+    const wasOpen = chat && chat.id === c.id;
+    await Store.remove(c.id);
+    if (wasOpen) await openChat(null);   // 보고 있던 대화를 지웠으면 화면도 비운다
     fillDrawer();
     refreshCount();
   });
@@ -449,11 +460,19 @@ function fillDrawer() {
   const all = Store.allTotals();
   chatTotal.textContent = chats.length ? `${chats.length}개 대화 · ${usageText(all)}` : "";
 
-  // 요율을 모르면 금액이 아예 안 나온다. 왜 안 나오는지 여기서 한 번 알린다 —
-  // **없는 금액을 만들어 보여주는 것보다 낫다** (src/pricing.js 참고).
-  if (!chats.length) chatNote.textContent = "저장된 대화가 없습니다.";
-  else if (costOf(all) === null) chatNote.textContent = "이 모델의 요율이 없어 토큰만 표시합니다.";
-  else chatNote.textContent = "금액은 Bedrock 요율 기준 추정입니다.";
+  // 어디에 저장되고 있는지 여기서 한 번 알린다. **기기 간에 이어지는지 아닌지는
+  // 눈으로 구분할 수 없어서**, 안 알리면 폰에서 없는 걸 보고서야 알게 된다.
+  if (Store.degraded) {
+    chatNote.textContent = "서버 저장에 실패해 이 기기에만 있습니다. 다시 접속하면 올립니다.";
+  } else if (!Store.online) {
+    chatNote.textContent = "이 브라우저에만 저장됩니다 — 다른 기기에서는 보이지 않습니다.";
+  } else if (!chats.length) {
+    chatNote.textContent = "저장된 대화가 없습니다.";
+  } else if (costOf(all) === null) {
+    chatNote.textContent = "이 모델의 요율이 없어 토큰만 표시합니다.";
+  } else {
+    chatNote.textContent = "모든 기기에서 이어집니다 · 금액은 Bedrock 요율 기준 추정입니다.";
+  }
 }
 
 function openDrawer() { fillDrawer(); drawer.hidden = false; }
@@ -461,23 +480,23 @@ function closeDrawer() { drawer.hidden = true; }
 
 document.getElementById("openchats").addEventListener("click", openDrawer);
 document.getElementById("closechats").addEventListener("click", closeDrawer);
-document.getElementById("newchat").addEventListener("click", () => openChat(null));
+document.getElementById("newchat").addEventListener("click", () => { openChat(null); });
 
 // 바깥(어두운 배경)을 누르면 닫는다. 패널 안쪽 클릭은 여기까지 안 온다.
 drawer.addEventListener("click", (e) => { if (e.target === drawer) closeDrawer(); });
 document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !drawer.hidden) closeDrawer(); });
 
-document.getElementById("clearall").addEventListener("click", () => {
+document.getElementById("clearall").addEventListener("click", async () => {
   if (!Store.list().length) return;
-  if (!confirm("저장된 대화를 모두 지웁니다. 되돌릴 수 없습니다.")) return;
-  Store.clear();
-  openChat(null);
+  const where = Store.online ? "모든 기기에서" : "이 브라우저에서";
+  if (!confirm(`저장된 대화를 ${where} 모두 지웁니다. 되돌릴 수 없습니다.`)) return;
+  await Store.clear();
+  await openChat(null);
   fillDrawer();
 });
 
 // ── 시작 ──────────────────────────────────────────────────────────
 (async function init() {
-  Store.load();
   try {
     const r = await fetch("/api/categories");
     if (!r.ok) throw new Error(`카테고리를 불러오지 못했습니다 (${r.status})`);
@@ -486,6 +505,10 @@ document.getElementById("clearall").addEventListener("click", () => {
     mcpOn = !!d.mcp;
     rates = d.rates || null;
 
+    // 서버 저장이 켜져 있는지는 **서버가 알려준다.** 화면이 짐작하지 않는다.
+    // 여기서 지난 대화 목록을 받아오고, 못 올린 게 있으면 이때 올라간다.
+    await Store.init(d.chats);
+
     tabs.replaceChildren(...catalog.map((c) => {
       const b = document.createElement("button");
       b.type = "button";
@@ -493,18 +516,19 @@ document.getElementById("clearall").addEventListener("click", () => {
       b.setAttribute("role", "tab");
       b.setAttribute("aria-selected", "false");
       b.innerHTML = `${esc(c.label)}<small>${esc(c.tagline)}</small>`;
-      b.addEventListener("click", () => {
+      b.addEventListener("click", async () => {
         setCategory(c.key);
-        openChat(Store.latestFor(c.key));
+        const latest = Store.latestFor(c.key);
+        await openChat(latest ? latest.id : null);
       });
       return b;
     }));
 
-    // 마지막으로 하던 대화를 그대로 이어 연다. 새로고침으로 대화가 사라지지 않는 것이
-    // 이 저장소의 존재 이유이므로, 기본 화면이 아니라 **직전 상태**로 시작한다.
+    // 마지막으로 하던 대화를 그대로 이어 연다. 새로고침해도, 다른 기기에서 열어도
+    // **직전 상태**로 시작하는 것이 이 저장소의 존재 이유다.
     const last = Store.list().find((c) => catalog.some((x) => x.key === c.cat));
     setCategory(last ? last.cat : d.default);
-    openChat(last || null);
+    await openChat(last ? last.id : null);
   } catch (e) {
     bubble("bot").innerHTML = `<p class="err">${esc(e.message)}</p>`;
   }

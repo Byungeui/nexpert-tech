@@ -163,6 +163,7 @@ body:not(.started) .log { justify-content: flex-end; }
 /* 답변 아래 사용량. **작고 흐리게** 둔다 — 참고 숫자지 답변의 일부가 아니다.
    자세한 내역(입력/출력/캐시)은 title 툴팁에만 있다. */
 .usage { color: var(--dim); font-size: 12px; padding-left: 4px; cursor: default; }
+.usage.warn { color: var(--danger); }
 
 /* ── 저장된 대화 서랍 ─────────────────────────────────── */
 /* ⚠ 상설 사이드바가 아니다. 옆 열은 한 번 붙였다가 대화 내내 비어서 버렸다.
