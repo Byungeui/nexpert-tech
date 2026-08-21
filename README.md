@@ -241,6 +241,16 @@ LTE는 접속할 때마다 IP가 바뀐다. IP 제한을 걷어낸 자리를 인
 ⚠ **AWS 자격증명은 환경변수로 넣지 않는다.** IAM Task Role이 자동 해석된다.
 키를 넣는 순간 분리의 이점이 사라진다.
 
+⚠ **기본값을 고쳐도 ECS 태스크 정의에 같은 이름이 박혀 있으면 그쪽이 이긴다.**
+`deploy.yml`은 이미지를 밀고 `--force-new-deployment`만 하지 **태스크 정의는 건드리지 않는다.**
+그래서 코드에서 리전·모델 기본값을 바꾸고 푸시해도, 태스크 정의에 옛 값이 남아 있으면
+배포는 성공하는데 동작은 그대로다. 태스크 정의는 수정이 안 되고 새 revision을 등록하는
+방식이므로, 현재 정의를 받아 읽기 전용 필드(`taskDefinitionArn`·`revision`·`status`·
+`requiresAttributes`·`compatibilities`·`registeredAt`·`registeredBy`)를 떼고 환경변수만
+갈아끼워 `register-task-definition` 한 뒤 `update-service --task-definition nexpert-tech:N`
+으로 옮긴다. **옛 revision은 남으므로 되돌리기는 서비스를 옛 번호로 다시 가리키면 끝이다.**
+확인은 CloudWatch 로그의 부팅 한 줄로 한다 — `listening on 8080 · bedrock=… · model=…`.
+
 ---
 
 ## 배포
@@ -315,10 +325,17 @@ AWS 가 최신 세대를 열어 주면 `BEDROCK_MODEL` 을 `us.anthropic.claude-
 `bedrock-runtime` 에는 프로젝트(workspace) 개념이 없다. Messages API 형태는 같아서
 스트리밍·시스템 블록·프롬프트 캐싱 코드는 한 줄도 안 바뀌었다.
 
-⚠ **IAM 액션도 함께 바뀌었다.** `bedrock-mantle:CreateInference` 가 아니라
-**`bedrock:InvokeModel` · `bedrock:InvokeModelWithResponseStream`** 이다. 그리고
-교차 리전 프로파일은 **프로파일 ARN 과 대상 리전들의 기반 모델 ARN 양쪽 모두**에
-권한이 있어야 한다 — 한쪽만 주면 호출이 거절된다. `"Resource": "*"` 로 열지 않는다.
+**IAM 은 바꿀 게 없었다.** `nexpert-tech-task-role` 에 인라인 정책이 둘 붙어 있는데,
+그중 `bedrock-invoke` 가 이미 `bedrock:InvokeModel` · `bedrock:InvokeModelWithResponseStream`
+을 `Resource: "*"` 로 허용하고 있어 그대로 통과한다.
+
+- `nexpert-tech-mantle-inference` — **이제 죽은 정책이다**(`bedrock-mantle:CreateInference`).
+  당장 지워도 되지만 지운다고 뭐가 달라지지는 않는다.
+- ⚠ `bedrock-invoke` 의 `Resource: "*"` 는 **좁히는 게 맞다.** 다만 교차 리전 프로파일은
+  **프로파일 ARN 과 대상 리전들의 기반 모델 ARN 양쪽 모두**에 권한이 있어야 하고
+  (`arn:aws:bedrock:us-west-2:…:inference-profile/us.anthropic.…` +
+  `arn:aws:bedrock:{us-east-1,us-east-2,us-west-2}::foundation-model/anthropic.…`),
+  한쪽만 주면 조용히 거절된다. 좁힐 때는 반드시 실제 호출로 확인한다.
 
 ### 여기까지 오는 데 일주일이 걸렸다 — 헛짚은 것들
 
