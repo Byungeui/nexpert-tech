@@ -78,6 +78,10 @@ app.get("/api/categories", (_req, res) => res.json({
   categories: categories.forClient(),
   default: categories.DEFAULT_CATEGORY,
   mcp: MCP_ENABLED,
+  // 요율을 화면으로 내려보낸다. **표 자체는 서버에만 있다** — 화면은 받아 쓰기만
+  // 하므로 요율을 고치면 다음 접속부터 지난 대화까지 새 기준으로 다시 계산된다.
+  // 금액을 저장하지 않는 이유는 public/app.js 의 costOf 주석 참고.
+  rates: pricing.ratesFor(MODEL),
 }));
 
 app.post("/api/chat", async (req, res) => {
@@ -146,10 +150,12 @@ app.post("/api/chat", async (req, res) => {
       input: final.usage?.input_tokens ?? 0,
       output: final.usage?.output_tokens ?? 0,
     };
-    // 비용은 **서버가 계산한다.** 요율을 화면 코드에 두면 요율이 바뀔 때마다 배포가
-    // 필요하고, 캐시된 옛 app.js 를 쥔 브라우저는 다른 금액을 보여준다.
-    // 요율의 정본은 src/pricing.js 한 곳이다. 모르는 요율이면 null 이 온다.
-    used.costUsd = pricing.costUsd(MODEL, final.usage);
+    // ⚠ **금액은 화면으로 보내지 않는다.** 화면은 토큰만 저장하고 표시할 때마다
+    // 요율로 다시 계산한다(`/api/categories` 의 rates). 금액을 함께 보내 저장시키면
+    // 요율을 고쳐도 옛 대화는 옛 금액을 들고 있어 한 화면에 두 기준이 섞인다.
+    //
+    // 반면 **로그에는 그때의 금액을 남긴다.** 이건 회계 기록이라 당시 요율로 굳는 게 맞다.
+    const costUsd = pricing.costUsd(MODEL, final.usage);
 
     // ── 사용량 기록 ─────────────────────────────────────────────────
     // 한 줄짜리 JSON 으로 남긴다. 이미 CloudWatch 로 보내고 있으므로 **새로 붙이는
@@ -160,7 +166,7 @@ app.post("/api/chat", async (req, res) => {
     //   고객사 이야기가 로그에 쌓인다. 대화 본문은 각자 브라우저에만 둔다
     //   (public/store.js 참고).
     console.log(JSON.stringify({
-      evt: "usage", user, category: category.key, model: MODEL, ...used,
+      evt: "usage", user, category: category.key, model: MODEL, ...used, costUsd,
     }));
 
     send("done", used);

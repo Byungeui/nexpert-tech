@@ -27,6 +27,7 @@ const chatCount = document.getElementById("chatcount");
 let chatId = null;       // 지금 보고 있는 대화. null 이면 아직 저장 안 된 새 대화
 let current = null;      // 지금 선택된 카테고리 객체
 let catalog = [];        // 서버가 준 카테고리 목록
+let rates = null;        // 서버가 준 100만 토큰당 요율. 없으면 금액을 표시하지 않는다
 let mcpOn = false;
 let busy = false;
 
@@ -153,9 +154,9 @@ function render(md) {
 
 // ── 사용량 표시 ───────────────────────────────────────────────────
 //
-// 금액은 **서버가 계산해서 내려준다**(src/pricing.js). 여기서 요율을 곱하지 않는다 —
-// 요율이 바뀔 때마다 화면을 배포해야 하고, 캐시된 옛 app.js 를 쥔 브라우저는 다른
-// 금액을 보여주기 때문이다. 요율을 모르면 서버가 costUsd 를 null 로 준다.
+// **요율표는 서버에만 있다**(src/pricing.js). 화면은 접속할 때 받아 두고 계산만 한다.
+// 여기에 숫자를 적어 두면 요율을 고칠 때 두 곳을 고쳐야 하고, 캐시된 옛 app.js 를 쥔
+// 브라우저가 다른 금액을 보여준다.
 
 const n = (x) => (x || 0).toLocaleString("ko-KR");
 
@@ -163,12 +164,41 @@ function tokensOf(u) {
   return (u.input || 0) + (u.output || 0) + (u.cacheRead || 0) + (u.cacheWrite || 0);
 }
 
+// ⚠ **금액은 저장하지 않고 볼 때마다 계산한다.** 답변마다 금액을 굳혀 두면 요율을
+// 고쳐도 지난 대화는 옛 금액을 들고 있어 한 화면에 두 기준이 섞인다. 토큰은 사실이라
+// 변하지 않지만 요율은 바뀐다 — 변하는 쪽을 저장하지 않는 게 맞다.
+// (회계 기록으로 굳혀야 하는 금액은 서버가 그때의 요율로 CloudWatch 에 남긴다.)
+function costOf(u) {
+  if (!rates || !u) return null;
+  let sum = 0;
+  for (const k of ["input", "output", "cacheWrite", "cacheRead"]) {
+    const tok = u[k] || 0;
+    if (!tok) continue;
+    if (typeof rates[k] !== "number") return null;   // 쓴 항목의 요율을 모르면 표시하지 않는다
+    sum += (tok * rates[k]) / 1e6;
+  }
+  return sum;
+}
+
+// 답변 하나는 몇 센트, 합계는 몇 달러다. 한 자릿수로 고정하면 한쪽이 늘 못 읽힌다 —
+// 답변마다 `$0.03` 이면 차이가 안 보이고, 합계가 `$1.2400` 이면 지저분하다.
+function money(v) {
+  if (typeof v !== "number") return null;
+  if (v === 0) return "$0";
+  if (v < 0.01) return `$${v.toFixed(4)}`;
+  if (v < 1) return `$${v.toFixed(3)}`;
+  return `$${v.toFixed(2)}`;
+}
+
 function usageText(u) {
   const t = `토큰 ${n(tokensOf(u))}`;
-  return typeof u.costUsd === "number" ? `${t} · $${u.costUsd.toFixed(4)}` : t;
+  const m = money(costOf(u));
+  return m ? `${t} · ${m}` : t;
 }
 
 // 자세한 내역은 툴팁으로만 둔다. 답변마다 네 숫자를 늘어놓으면 대화가 안 읽힌다.
+// 캐시 쓰기가 입력보다 비싸므로 **첫 질문이 이어지는 질문보다 비싸다** — 금액이
+// 들쭉날쭉해 보이는 이유가 이것이고, 그건 여기 내역을 봐야 납득이 된다.
 function usageDetail(u) {
   return `입력 ${n(u.input)} · 출력 ${n(u.output)} · 캐시읽기 ${n(u.cacheRead)} · 캐시쓰기 ${n(u.cacheWrite)}`;
 }
@@ -419,11 +449,11 @@ function fillDrawer() {
   const all = Store.allTotals();
   chatTotal.textContent = chats.length ? `${chats.length}개 대화 · ${usageText(all)}` : "";
 
-  // 요율을 안 넣었으면 금액이 아예 안 나온다. 왜 안 나오는지 여기서 한 번 알린다 —
+  // 요율을 모르면 금액이 아예 안 나온다. 왜 안 나오는지 여기서 한 번 알린다 —
   // **없는 금액을 만들어 보여주는 것보다 낫다** (src/pricing.js 참고).
   if (!chats.length) chatNote.textContent = "저장된 대화가 없습니다.";
-  else if (all.costUsd === null) chatNote.textContent = "Bedrock 요율이 설정되지 않아 토큰만 표시합니다.";
-  else chatNote.textContent = "";
+  else if (costOf(all) === null) chatNote.textContent = "이 모델의 요율이 없어 토큰만 표시합니다.";
+  else chatNote.textContent = "금액은 Bedrock 요율 기준 추정입니다.";
 }
 
 function openDrawer() { fillDrawer(); drawer.hidden = false; }
@@ -454,6 +484,7 @@ document.getElementById("clearall").addEventListener("click", () => {
     const d = await r.json();
     catalog = d.categories;
     mcpOn = !!d.mcp;
+    rates = d.rates || null;
 
     tabs.replaceChildren(...catalog.map((c) => {
       const b = document.createElement("button");

@@ -101,24 +101,18 @@
     save();
   }
 
-  // 사용량 합계. 비용은 **하나라도 모르면 전체를 null 로 둔다** — 일부만 더한
-  // 금액을 보여주면 실제보다 싸 보인다.
+  // 사용량 합계. **토큰만 더한다** — 금액은 저장하지 않고 표시할 때 요율로 계산한다
+  // (app.js 의 costOf). 요율이 선형이라 "토큰 합계 × 요율"과 "답변별 금액의 합"은 같다.
   function sum(msgs) {
-    const t = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, costUsd: 0 };
-    let priced = true;
-    let any = false;
+    const t = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
     for (const m of msgs) {
       const u = m.usage;
       if (!u) continue;
-      any = true;
       t.input += u.input || 0;
       t.output += u.output || 0;
       t.cacheRead += u.cacheRead || 0;
       t.cacheWrite += u.cacheWrite || 0;
-      if (typeof u.costUsd === "number") t.costUsd += u.costUsd;
-      else priced = false;
     }
-    if (!priced || !any) t.costUsd = null;
     return t;
   }
 
