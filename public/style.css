@@ -170,6 +170,12 @@ body:not(.started) .log { justify-content: flex-end; }
 .msg .body th, .msg .body td { border: 1px solid var(--line-soft); padding: 6px 10px; text-align: left; }
 .msg .body th { background: #16283f; }
 .msg .body a { color: var(--cyan); }
+/* 답변에서 절을 나누는 가로줄. 말풍선 안이라 선을 흐리게 둔다 — 진하면 답변이
+   여러 조각으로 잘려 보인다. */
+.msg .body hr { border: 0; border-top: 1px solid var(--line); margin: 14px 0; }
+/* 목록 들여쓰기. 브라우저 기본값(40px)은 말풍선 안에서 너무 깊다. */
+.msg .body ul, .msg .body ol { padding-left: 22px; margin: 8px 0; }
+.msg .body li { margin: 3px 0; }
 
 /* 답변 아래 사용량. **작고 흐리게** 둔다 — 참고 숫자지 답변의 일부가 아니다.
    자세한 내역(입력/출력/캐시)은 title 툴팁에만 있다. */

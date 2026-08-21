@@ -39,6 +39,24 @@ function inline(s) {
     .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
 }
 
+// 블록의 시작을 알아보는 식들.
+//
+// ⚠ **BLOCK 은 아래 render 의 분기 집합과 반드시 일치해야 한다.** 하나라도 빠지면
+//   그 줄에서 문단 분기가 먹어 치우고(예: `---` 이 글자로 보인다), 반대로 BLOCK 에만
+//   있고 분기가 없으면 **아무도 그 줄을 소비하지 않아 무한 루프가 된다.**
+//   그래서 따로 적지 않고 여기서 조립한다 — 베껴 적는 순간 언젠가 어긋난다.
+const HR = /^\s*(-{3,}|\*{3,}|_{3,})\s*$/;
+const UL = /^\s*[-*]\s+/;
+// ⚠ **자릿수를 두 자리로 묶는다.** 풀어 두면 `2026. 08. 21.` 같은 한국식 날짜가
+//   번호 목록으로 둔갑한다 — 세무·견적 이야기를 하는 이 사이트에서 실제로 나오는 형태다.
+const OL = /^\s*(\d{1,2})[.)]\s+/;
+const TABLE = /^\s*\|/;
+const FENCE = /^```/;
+const HEAD = /^(#{1,4})\s+(.*)$/;
+const BLOCK = new RegExp(
+  [HR, UL, OL, TABLE, FENCE, /^#{1,4}\s/].map((r) => r.source).join("|")
+);
+
 function render(md) {
   const lines = esc(md).split("\n");
   const out = [];
@@ -48,22 +66,22 @@ function render(md) {
     const line = lines[i];
 
     // 코드 블록
-    if (/^```/.test(line)) {
+    if (FENCE.test(line)) {
       const buf = [];
       i++;
-      while (i < lines.length && !/^```/.test(lines[i])) buf.push(lines[i++]);
+      while (i < lines.length && !FENCE.test(lines[i])) buf.push(lines[i++]);
       i++;
       out.push(`<pre><code>${buf.join("\n")}</code></pre>`);
       continue;
     }
 
     // 표 — | 로 시작하고 다음 줄이 구분선일 때만
-    if (/^\s*\|/.test(line) && i + 1 < lines.length && /^\s*\|[\s:|-]+\|\s*$/.test(lines[i + 1])) {
+    if (TABLE.test(line) && i + 1 < lines.length && /^\s*\|[\s:|-]+\|\s*$/.test(lines[i + 1])) {
       const cells = (r) => r.trim().replace(/^\||\|$/g, "").split("|").map((c) => inline(c.trim()));
       const head = cells(line);
       i += 2;
       const rows = [];
-      while (i < lines.length && /^\s*\|/.test(lines[i])) rows.push(cells(lines[i++]));
+      while (i < lines.length && TABLE.test(lines[i])) rows.push(cells(lines[i++]));
       out.push(
         "<table><thead><tr>" + head.map((c) => `<th>${c}</th>`).join("") + "</tr></thead><tbody>" +
         rows.map((r) => "<tr>" + r.map((c) => `<td>${c}</td>`).join("") + "</tr>").join("") +
@@ -72,19 +90,40 @@ function render(md) {
       continue;
     }
 
+    // 가로줄. ⚠ **표 구분선(`|---|`)보다 뒤에서 본다** — 표 분기가 먼저 가져가야 한다.
+    // 문단으로 흘려보내면 `---` 이 글자 그대로 보인다.
+    if (HR.test(line)) {
+      out.push("<hr>");
+      i++;
+      continue;
+    }
+
     // 목록
-    if (/^\s*[-*]\s+/.test(line)) {
+    if (UL.test(line)) {
       const items = [];
-      while (i < lines.length && /^\s*[-*]\s+/.test(lines[i])) {
-        items.push(`<li>${inline(lines[i].replace(/^\s*[-*]\s+/, ""))}</li>`);
+      while (i < lines.length && UL.test(lines[i])) {
+        items.push(`<li>${inline(lines[i].replace(UL, ""))}</li>`);
         i++;
       }
       out.push(`<ul>${items.join("")}</ul>`);
       continue;
     }
 
+    // 번호 목록. 1 로 시작하지 않으면 start 를 붙인다 — 답변이 "3. 부터"로 이어질 때
+    // 번호가 1 로 되돌아가면 앞 문단과 말이 어긋난다.
+    if (OL.test(line)) {
+      const start = Number(line.match(OL)[1]);
+      const items = [];
+      while (i < lines.length && OL.test(lines[i])) {
+        items.push(`<li>${inline(lines[i].replace(OL, ""))}</li>`);
+        i++;
+      }
+      out.push(`<ol${start === 1 ? "" : ` start="${start}"`}>${items.join("")}</ol>`);
+      continue;
+    }
+
     // 제목
-    const h = line.match(/^(#{1,4})\s+(.*)$/);
+    const h = line.match(HEAD);
     if (h) {
       const lv = Math.min(h[1].length + 2, 6);
       out.push(`<h${lv}>${inline(h[2])}</h${lv}>`);
@@ -96,11 +135,11 @@ function render(md) {
 
     // 문단 — 빈 줄까지 모은다
     const buf = [];
-    while (i < lines.length && lines[i].trim() && !/^\s*[-*]\s+|^\s*\||^```|^#{1,4}\s/.test(lines[i])) {
+    while (i < lines.length && lines[i].trim() && !BLOCK.test(lines[i])) {
       buf.push(lines[i++]);
     }
     // ⚠ **여기서 한 줄도 못 먹으면 i 가 안 늘어 바깥 while 이 영원히 돈다.**
-    // 위 조건은 `|` 로 시작하는 줄을 제외하는데, 표 분기는 "다음 줄이 구분선일 때만"
+    // BLOCK 은 `|` 로 시작하는 줄을 제외하는데, 표 분기는 "다음 줄이 구분선일 때만"
     // 성립한다. 스트리밍 중에는 `| 항목 | 값 |` 까지만 오고 구분선은 아직 안 온다 —
     // 그 한 틱 동안 두 분기가 서로 미루며 out 이 배열 한계까지 커져
     // `RangeError: Invalid array length` 로 화면이 죽는다. 답변이 제대로 오는
